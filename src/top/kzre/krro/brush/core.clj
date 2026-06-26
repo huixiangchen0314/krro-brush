@@ -13,11 +13,60 @@
     [top.kzre.krro.brush.vector.fit :as vfit]
     [top.kzre.krro.brush.vector.render :as vrender]))
 
+;; ── 默认 Dab 渲染器 ─────────────────────────────────
+(defrecord DefaultDabRenderer []
+  p/IDabRenderer
+  (render-dab [_ canvas dab-mask fg-color opacity mix-mode mixer post-spec paper-texture]
+    (let [w       (:width dab-mask)
+          h       (:height dab-mask)
+          data    (:data dab-mask)
+          half-w  (quot w 2)
+          half-h  (quot h 2)
+          canvas-w (p/width canvas)
+          canvas-h (p/height canvas)
+          cx      (:cx dab-mask)
+          cy      (:cy dab-mask)
+          water-edge? (get-in post-spec [:watercolor :enable] false)
+          edge-intensity (get-in post-spec [:watercolor :intensity] 0.5)
+          paper-enabled? (and paper-texture (get-in post-spec [:paper :enable] false))
+          paper-strength (get-in post-spec [:paper :strength] 0.2)
+          result (atom {:canvas canvas :dirty-rect nil})]
+      (doseq [idx (range (* w h))]
+        (let [px (mod idx w)
+              py (quot idx w)
+              alpha (aget data idx)]
+          (when (> alpha 0.0)
+            (let [canvas-x (- cx half-w px)
+                  canvas-y (- cy half-h py)]
+              (when (and (>= canvas-x 0) (< canvas-x canvas-w)
+                         (>= canvas-y 0) (< canvas-y canvas-h))
+                (let [bg    (p/get-pixel (:canvas @result) canvas-x canvas-y)
+                      mixed (p/mix-colors mixer fg-color bg (* opacity alpha) mix-mode)
+                      final (cond-> mixed
+                                    water-edge?
+                                    (post/apply-watercolor-edge dab-mask px py alpha edge-intensity)
+                                    paper-enabled?
+                                    (post/apply-paper-texture paper-texture canvas-x canvas-y paper-strength))
+                      new-canvas (p/set-pixel! (:canvas @result) canvas-x canvas-y final)
+                      [dx dy dw dh] (if-let [[x y w' h'] (:dirty-rect @result)]
+                                      [(min x canvas-x) (min y canvas-y)
+                                       (max (+ x w') (inc canvas-x)) (max (+ y h') (inc canvas-y))]
+                                      [canvas-x canvas-y 1 1])]
+                  (swap! result assoc
+                         :canvas new-canvas
+                         :dirty-rect [dx dy (- (max (+ dx dw) (inc canvas-x)) dx)
+                                      (- (max (+ dy dh) (inc canvas-y)) dy)])))))))
+      @result)))
+
+(def default-dab-renderer (->DefaultDabRenderer))
+
+
 ;; ── 混色模型多方法 ───────────────────────────────────
 (defmulti compute-mix
           "根据混色模式 mix-mode 计算当前 dab 的最终前景色和新的笔触状态。
            返回 [fg new-st]。"
           (fn [mix-mode base-fg params st canvas cx cy] mix-mode))
+
 
 (defmethod compute-mix :basic
   [_ base-fg params st canvas cx cy]
@@ -74,74 +123,28 @@
   [mix-mode base-fg params st canvas cx cy]
   (compute-mix :basic base-fg params st canvas cx cy))
 
-;; ── blit-dab 返回脏矩形 ──────────────────────────────
-(defn- blit-dab
-  "将 dab 遮罩逐像素混合到画布上，并应用后处理。
-   返回 {:canvas new-canvas, :dirty-rect [x y w h]}"
-  [canvas dab-mask fg-color opacity mix-mode mixer post-spec paper-texture]
-  (let [w       (:width dab-mask)
-        h       (:height dab-mask)
-        data    (:data dab-mask)
-        half-w  (quot w 2)
-        half-h  (quot h 2)
-        canvas-w (p/width canvas)
-        canvas-h (p/height canvas)
-        cx      (:cx dab-mask)
-        cy      (:cy dab-mask)
-        water-edge? (get-in post-spec [:watercolor :enable] false)
-        edge-intensity (get-in post-spec [:watercolor :intensity] 0.5)
-        paper-enabled? (and paper-texture (get-in post-spec [:paper :enable] false))
-        paper-strength (get-in post-spec [:paper :strength] 0.2)
-        result (atom {:canvas canvas :dirty-rect nil})]
-    (doseq [idx (range (* w h))]
-      (let [px (mod idx w)
-            py (quot idx w)
-            alpha (aget data idx)]
-        (when (> alpha 0.0)
-          (let [canvas-x (- cx half-w px)
-                canvas-y (- cy half-h py)]
-            (when (and (>= canvas-x 0) (< canvas-x canvas-w)
-                       (>= canvas-y 0) (< canvas-y canvas-h))
-              (let [bg    (p/get-pixel (:canvas @result) canvas-x canvas-y)
-                    ;; ** 使用协议方法 mix-colors **
-                    mixed (p/mix-colors mixer fg-color bg (* opacity alpha) mix-mode)
-                    final (cond-> mixed
-                                  water-edge?
-                                  (post/apply-watercolor-edge dab-mask px py alpha edge-intensity)
-                                  paper-enabled?
-                                  (post/apply-paper-texture paper-texture canvas-x canvas-y paper-strength))
-                    new-canvas (p/set-pixel! (:canvas @result) canvas-x canvas-y final)
-                    ;; 更新脏矩形
-                    [dx dy dw dh] (if-let [[x y w' h'] (:dirty-rect @result)]
-                                    [(min x canvas-x) (min y canvas-y)
-                                     (max (+ x w') (inc canvas-x)) (max (+ y h') (inc canvas-y))]
-                                    [canvas-x canvas-y 1 1])]
-                (swap! result assoc
-                       :canvas new-canvas
-                       :dirty-rect [dx dy (- (max (+ dx dw) (inc canvas-x)) dx)
-                                    (- (max (+ dy dh) (inc canvas-y)) dy)])))))))
-    @result))
 
 ;; ── render-stroke 返回脏矩形列表 ─────────────────────
 (defn render-stroke
-  "笔触渲染主入口，返回 {:canvas new-canvas, :dirty-rects [...]}"
   [brush-def canvas input-events
-   & {:keys [smoother-impl dynamics-impl dab-impl mixer-impl]
+   & {:keys [smoother-impl dynamics-impl dab-impl mixer-impl
+             dab-renderer vector-rasterizer]
       :or {smoother-impl smoother/smooth
            dynamics-impl dynamics/map-dynamics
            dab-impl      dab/generate-dab
-           ;; ** 默认使用实现了 IColorMixer 协议的 DefaultMixer 实例 **
-           mixer-impl    mix/default-mixer}}]
+           mixer-impl    mix/default-mixer
+           dab-renderer  default-dab-renderer
+           vector-rasterizer vrender/default-vector-rasterizer}}]  ;; 需在 vector.render 中提供
   (let [vector-spec (:vector brush-def)]
     (if vector-spec
-      ;; 矢量笔刷分支
+      ;; 矢量笔刷分支：使用 IVectorRasterizer
       (let [base-width (get vector-spec :base-width 5.0)
             width-dynamics (get vector-spec :width-dynamics :pressure)
             dab-size (get vector-spec :dab-size 512)
             fitted (vfit/fit-curve input-events)
             smooth-width-fn (vrender/create-smooth-width-fn fitted base-width 2)
             width-fn (fn [t] (smooth-width-fn t))
-            dab-mask (vrender/render-vector-scanline {:segments fitted} width-fn dab-size)
+            dab-mask (p/rasterize-vector vector-rasterizer fitted width-fn dab-size)
             color-spec (:color brush-def)
             fg (get color-spec :color [0 0 0 1])
             mix-mode (:blend-model color-spec :basic)
@@ -155,9 +158,9 @@
             cx (+ minx (/ (- maxx minx) 2))
             cy (+ miny (/ (- maxy miny) 2))
             dab-full (assoc dab-mask :cx cx :cy cy)
-            {:keys [canvas dirty-rect]} (blit-dab canvas dab-full fg opacity mix-mode mixer-impl post-spec paper-tex)]
+            {:keys [canvas dirty-rect]} (p/render-dab dab-renderer canvas dab-full fg opacity mix-mode mixer-impl post-spec paper-tex)]
         {:canvas canvas :dirty-rects [dirty-rect]})
-      ;; 光栅笔刷分支
+      ;; 光栅笔刷分支（原有逻辑，使用 dab-renderer）
       (let [stroke-spec (:stroke brush-def)
             dyn-spec    (:dynamics brush-def)
             dab-spec    (:dab brush-def)
@@ -180,8 +183,7 @@
                   dab-mask (dab-impl dab-spec params)
                   [fg new-st] (compute-mix mix-mode base-fg params st canvas cx cy)
                   dab-full (assoc dab-mask :cx cx :cy cy)
-                  ;; ** mixer-impl 是实现了 IColorMixer 协议的记录 **
-                  {:keys [canvas dirty-rect]} (blit-dab canvas dab-full fg opacity mix-mode mixer-impl post-spec paper-tex)]
+                  {:keys [canvas dirty-rect]} (p/render-dab dab-renderer canvas dab-full fg opacity mix-mode mixer-impl post-spec paper-tex)]
               {:canvas canvas
                :dirty-rects (conj dirty-rects dirty-rect)
                :st new-st}))

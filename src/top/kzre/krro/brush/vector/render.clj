@@ -1,8 +1,9 @@
 (ns top.kzre.krro.brush.vector.render
   "高效贝塞尔光栅化：基于距离场的扫描线算法，使用连续距离抗锯齿。
    优化了距离计算（复用采样点）并移除了多重子像素采样，性能大幅提升。"
-  (:require [top.kzre.krro.brush.util :as util]
-            [top.kzre.krro.brush.vector.fit :as fit]))
+  (:require
+   [top.kzre.krro.brush.protocol :as p]
+   [top.kzre.krro.brush.util :as util]))
 
 ;; ── 贝塞尔求值 ────────────────────────────────────────
 (defn- evaluate-bezier
@@ -102,3 +103,10 @@
 
 (defn render-vector [vector-data width-fn dab-size]
   (render-vector-scanline vector-data width-fn dab-size))
+
+(defrecord DefaultVectorRasterizer []
+  p/IVectorRasterizer
+  (rasterize-vector [_ segments width-fn dab-size]
+    (render-vector-scanline {:segments segments} width-fn dab-size)))
+
+(def default-vector-rasterizer (->DefaultVectorRasterizer))
