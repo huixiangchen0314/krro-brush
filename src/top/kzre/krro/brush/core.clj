@@ -13,6 +13,51 @@
     [top.kzre.krro.brush.vector.fit :as vfit]
     [top.kzre.krro.brush.vector.render :as vrender]))
 
+(defmulti compute-mix
+          "根据混色模式 mix-mode 计算当前 dab 的最终前景色和新的笔触状态。
+           返回 [fg new-st]。
+           base-fg 为笔刷基础前景色 [r g b a]，
+           params 为当前 dab 的动力学参数（包含 :blend-ratio, :carry-decay 等），
+           st 为当前笔触状态，canvas 为画布，cx/cy 为当前 dab 中心。"
+          (fn [mix-mode base-fg params st canvas cx cy] mix-mode))
+
+(defmethod compute-mix :basic
+  [_ base-fg params st canvas cx cy]
+  [base-fg (stroke/update-state st {:last-pos [cx cy]})])
+
+(defmethod compute-mix :colored-brush
+  [_ base-fg params st canvas cx cy]
+  (let [blend-ratio (get params :blend-ratio 0.5)
+        carry-decay (get params :carry-decay 0.5)
+        carry (get st :carry-color (subvec base-fg 0 3))
+        bg (p/get-pixel canvas cx cy)
+        fg-rgb (subvec base-fg 0 3)
+        bg-rgb (subvec bg 0 3)
+        blended (util/lerp fg-rgb bg-rgb blend-ratio)
+        final-rgb (util/lerp carry blended carry-decay)
+        final-a   (+ (peek base-fg) (* (peek bg) (- 1 (peek base-fg))))
+        final-color (conj (vec final-rgb) final-a)
+        new-st (stroke/update-state st {:carry-color final-rgb :last-pos [cx cy]})]
+    [final-color new-st]))
+
+(defmethod compute-mix :smudge
+  [_ base-fg params st canvas cx cy]
+  (let [last-pos (:last-pos st)
+        smudge-src (if last-pos
+                     (p/get-pixel canvas (first last-pos) (second last-pos))
+                     (p/get-pixel canvas cx cy))
+        smudge-ratio (get params :smudge-ratio 0.5)
+        fg-rgb (subvec base-fg 0 3)
+        src-rgb (subvec smudge-src 0 3)
+        blended (util/lerp fg-rgb src-rgb smudge-ratio)
+        final-color (conj (vec blended) (peek base-fg))
+        new-st (stroke/update-state st {:last-pos [cx cy]})]
+    [final-color new-st]))
+
+(defmethod compute-mix :default
+  [mix-mode base-fg params st canvas cx cy]
+  (compute-mix :basic base-fg params st canvas cx cy))
+
 (defn- blit-dab
   "将 dab 遮罩逐像素混合到画布上，并应用后处理。"
   [canvas dab-mask fg-color opacity mix-mode mixer post-spec paper-texture]
@@ -69,28 +114,22 @@
            mixer-impl    mix/default-mix-colors}}]
   (let [vector-spec (:vector brush-def)]
     (if vector-spec
-      ;; ===== 矢量笔刷分支 =====
-      (let [;; 参数
-            base-width (get vector-spec :base-width 5.0)
-            width-dynamics (get vector-spec :width-dynamics :pressure) ;; 根据什么传感器控制线宽
-            dab-size (get vector-spec :dab-size 512) ; 光栅化画布尺寸
-            ;; 拟合矢量曲线
+      ;; 矢量笔刷分支
+      (let [base-width (get vector-spec :base-width 5.0)
+            width-dynamics (get vector-spec :width-dynamics :pressure)
+            dab-size (get vector-spec :dab-size 512)
             fitted (vfit/fit-curve input-events)
-            ;; 根据压力映射线宽函数
             width-fn (fn [t]
                        (let [seg (nth fitted (min (dec (count fitted)) (int (* t (count fitted)))))
                              pressure (:pressure seg 1.0)]
                          (* base-width pressure)))
-            ;; 光栅化为灰度遮罩
             dab-mask (vrender/render-vector {:segments fitted} width-fn dab-size)
-            ;; 前景色
             color-spec (:color brush-def)
             fg (get color-spec :color [0 0 0 1])
             mix-mode (:blend-model color-spec :basic)
             opacity 1.0
             post-spec (:post brush-def)
             paper-tex (get-in brush-def [:texture :paper-image])
-            ;; 计算整个笔触的包围盒中心
             xs (map :x input-events)
             ys (map :y input-events)
             minx (apply min xs) maxx (apply max xs)
@@ -99,8 +138,7 @@
             cy (+ miny (/ (- maxy miny) 2))
             dab-full (assoc dab-mask :cx cx :cy cy)]
         (blit-dab canvas dab-full fg opacity mix-mode mixer-impl post-spec paper-tex))
-
-      ;; ===== 光栅笔刷分支（原有逻辑） =====
+      ;; 光栅笔刷分支
       (let [stroke-spec (:stroke brush-def)
             dyn-spec    (:dynamics brush-def)
             dab-spec    (:dab brush-def)
@@ -122,34 +160,7 @@
                     cx      (:x params)
                     cy      (:y params)
                     dab-mask (dab-impl dab-spec params)
-                    [fg new-st]
-                    (case mix-mode
-                      :colored-brush
-                      (let [blend-ratio (get params :blend-ratio 0.5)
-                            carry-decay (get params :carry-decay 0.5)
-                            carry (get st :carry-color (subvec base-fg 0 3))
-                            bg (p/get-pixel canvas-state cx cy)
-                            fg-rgb (subvec base-fg 0 3)
-                            bg-rgb (subvec bg 0 3)
-                            blended (util/lerp fg-rgb bg-rgb blend-ratio)
-                            final-rgb (util/lerp carry blended carry-decay)
-                            final-a   (+ (peek base-fg) (* (peek bg) (- 1 (peek base-fg))))
-                            final-color (conj (vec final-rgb) final-a)
-                            new-st (stroke/update-state st {:carry-color final-rgb :last-pos [cx cy]})]
-                        [final-color new-st])
-                      :smudge
-                      (let [last-pos (:last-pos st)
-                            smudge-src (if last-pos
-                                         (p/get-pixel canvas-state (first last-pos) (second last-pos))
-                                         (p/get-pixel canvas-state cx cy))
-                            smudge-ratio (get params :smudge-ratio 0.5)
-                            fg-rgb (subvec base-fg 0 3)
-                            src-rgb (subvec smudge-src 0 3)
-                            blended (util/lerp fg-rgb src-rgb smudge-ratio)
-                            final-color (conj (vec blended) (peek base-fg))
-                            new-st (stroke/update-state st {:last-pos [cx cy]})]
-                        [final-color new-st])
-                      [base-fg (stroke/update-state st {:last-pos [cx cy]})])
+                    [fg new-st] (compute-mix mix-mode base-fg params st canvas-state cx cy)
                     dab-full (assoc dab-mask :cx cx :cy cy)
                     new-canvas (blit-dab canvas-state dab-full fg opacity mix-mode mixer-impl post-spec paper-tex)]
                 [new-canvas new-st]))
