@@ -38,22 +38,21 @@
     (util/lerp v1 v2 t)))
 
 (defn map-dynamics
-  "根据动力学规格 dynamics-spec 和当前传感器事件 input-event，
-   对 dab 基础参数 dab-base 进行动力学放大，返回更新后的 dab 参数 map。"
   [dab-base dynamics-spec input-event]
   (reduce-kv
     (fn [params sensor-name mapping]
       (let [raw (case sensor-name
-                  :pressure (get input-event :pressure 1.0)
-                  :velocity (get input-event :velocity 1.0)
-                  :tilt-x   (get-in input-event [:tilt :x] 0.5)
-                  :tilt-y   (get-in input-event [:tilt :y] 0.5)
-                  :rotation (get input-event :rotation 0.0)
-                  1.0)]
+                  :pressure (let [v (:pressure input-event 1.0)] (if (number? v) (double v) 1.0))
+                  :velocity (let [v (:velocity input-event 1.0)] (if (number? v) (double v) 1.0))
+                  :tilt-x   (let [v (get-in input-event [:tilt :x] 0.5)] (if (number? v) (double v) 0.5))
+                  :tilt-y   (let [v (get-in input-event [:tilt :y] 0.5)] (if (number? v) (double v) 0.5))
+                  :rotation (let [v (:rotation input-event 0.0)] (if (number? v) (double v) 0.0))
+                  (double 1.0))]
         (reduce-kv
           (fn [params param-name {:keys [curve min max] :or {curve :linear, min 0.0, max 1.0}}]
-            (let [mapped (+ min (* (- max min) (apply-curve raw curve)))]
-              (assoc params param-name mapped)))
+            (let [curved (apply-curve raw curve)
+                  mapped (+ (double min) (* (- (double max) (double min)) curved))]
+              (assoc params param-name (util/clamp 0.0 1.0 mapped))))
           params
           mapping)))
     dab-base

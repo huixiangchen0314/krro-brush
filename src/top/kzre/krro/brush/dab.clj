@@ -15,6 +15,7 @@
     (util/lerp (util/lerp (get x0 y0) (get x1 y0) fx)
                (util/lerp (get x0 y1) (get x1 y1) fx) fy)))
 
+
 (defn- apply-mask [dist radius mask-type]
   (case mask-type
     :hard (if (<= dist radius) 1.0 0.0)
@@ -27,6 +28,43 @@
           "根据 dab-spec 中的 :type 生成对应的灰度 dab 遮罩。
            params 为动力学映射后的参数，必须包含 :radius。"
           (fn [dab-spec params] (get dab-spec :type :circle)))
+
+
+;; ── 缓存键生成 ───────────────────────────────────────
+(defn- cache-key
+  "生成用于缓存查找的键，仅包含影响形状的主要参数。"
+  [dab-spec params]
+  (let [t (get dab-spec :type :circle)]
+    (case t
+      (:circle :ellipse :star :polygon)
+      [t (get params :radius 10.0)
+       (get dab-spec :mask-type :soft)
+       (when (#{:ellipse :star :polygon} t) (get params :angle 0.0))
+       (when (= t :star) [(get dab-spec :points 5) (get dab-spec :inner-ratio 0.5)])
+       (when (= t :polygon) (get dab-spec :sides 6))]
+      :image (let [img (:image-data dab-spec)]
+               [t (get params :radius 10.0) (get params :scale-x 1.0) (get params :scale-y 1.0)
+                (get params :angle 0.0) (hash img)])  ;; 用 hash 避免大图像比较
+      :custom [t (get params :radius 10.0) (hash (:custom-fn dab-spec))]
+      :dual (let [p (get dab-spec :primary) s (get dab-spec :secondary)]
+              [:dual (cache-key p params) (cache-key s params) (get dab-spec :dual-blend :multiply)])
+      [t (get params :radius 10.0) (get dab-spec :mask-type :soft)])))  ;; 默认
+
+;; ── 缓存原子 ─────────────────────────────────────────
+(defonce ^:private dab-cache (atom {}))
+
+(defn- cached-generate-dab*
+  "带缓存的 dab 生成，键不存在时调用原始函数并存储结果。"
+  [dab-spec params]
+  (let [key (cache-key dab-spec params)]
+    (if-let [cached (get @dab-cache key)]
+      cached
+      (let [result (generate-dab* dab-spec params)]
+        (swap! dab-cache assoc key result)
+        result))))
+
+
+
 
 (defmethod generate-dab* :circle [dab-spec params]
   (let [size (int (* 2 (get params :radius 10.0)))
@@ -172,7 +210,6 @@
   (generate-dab* {:type :circle} params))
 
 (defn generate-dab
-  "根据 dab-spec 和动态参数生成灰度 dab 遮罩。
-   返回 {:data [double], :width w, :height h}"
+  "生成灰度 dab 遮罩（带缓存）。返回 {:data [double], :width w, :height h}"
   [dab-spec params]
-  (generate-dab* dab-spec params))
+  (cached-generate-dab* dab-spec params))
