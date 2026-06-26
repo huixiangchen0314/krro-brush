@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>top.kzre</groupId>
+    <artifactId>krro-brush</artifactId>
+    <version>0.1.0</version>
+
+    <name>krro-brush</name>
+    <description>A professional color engine in pure Clojure</description>
+    <url>https://github.com/huixiangchen0314/krro-brush</url>
+
+
+    <developers>
+        <developer>
+            <name>Hui Xiang Chen</name>
+            <email>huixiangchen@gmail.com</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <url>https://github.com/huixiangchen0314/krro-brush</url>
+        <connection>scm:git:git://github.com/huixiangchen0314/krro-brush.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com:huixiangchen0314/krro-brush.git</developerConnection>
+    </scm>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.clojure</groupId>
+            <artifactId>clojure</artifactId>
+            <version>1.11.1</version>
+        </dependency>
+    </dependencies>
+</project>
