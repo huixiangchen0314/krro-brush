@@ -59,14 +59,12 @@
       (range (* w h)))))
 
 (defn render-stroke
-  "笔触渲染主入口。支持 :colored-brush, :smudge 混色模型。"
   [brush-def canvas input-events
-   & {:keys [smoother-impl dynamics-impl dab-impl mixer-impl post-impl]
+   & {:keys [smoother-impl dynamics-impl dab-impl mixer-impl]   ;; 移除 post-impl
       :or {smoother-impl smoother/smooth
            dynamics-impl dynamics/map-dynamics
            dab-impl      dab/generate-dab
-           mixer-impl    mix/default-mix-colors
-           post-impl     post/apply-post}}]
+           mixer-impl    mix/default-mix-colors}}]
   (let [stroke-spec (:stroke brush-def)
         dyn-spec    (:dynamics brush-def)
         dab-spec    (:dab brush-def)
