@@ -25,16 +25,25 @@
   [_ base-fg params st canvas cx cy]
   [base-fg (stroke/update-state st {:last-pos [cx cy]})])
 
+;; 在 core.clj 中修改 :colored-brush 方法
 (defmethod compute-mix :colored-brush
   [_ base-fg params st canvas cx cy]
-  (let [blend-ratio (get params :blend-ratio 0.5)
-        carry-decay (get params :carry-decay 0.5)
+  (let [blend-ratio    (get params :blend-ratio 0.5)
+        carry-decay    (get params :carry-decay 0.5)
+        ;; 新增参数：非线性衰减指数（>1 加速衰减，<1 延迟衰减）
+        decay-exponent (get params :decay-exponent 1.0)
+        ;; 新增参数：最小携带量 0-1，防止颜色完全被背景覆盖
+        min-carry      (get params :min-carry 0.0)
         carry (get st :carry-color (subvec base-fg 0 3))
         bg (p/get-pixel canvas cx cy)
         fg-rgb (subvec base-fg 0 3)
         bg-rgb (subvec bg 0 3)
         blended (util/lerp fg-rgb bg-rgb blend-ratio)
-        final-rgb (util/lerp carry blended carry-decay)
+        ;; 应用非线性衰减
+        effective-decay (Math/pow carry-decay decay-exponent)
+        ;; 限制衰减后的携带色不低于 min-carry
+        clamped-decay (max min-carry effective-decay)
+        final-rgb (util/lerp carry blended clamped-decay)
         final-a   (+ (peek base-fg) (* (peek bg) (- 1 (peek base-fg))))
         final-color (conj (vec final-rgb) final-a)
         new-st (stroke/update-state st {:carry-color final-rgb :last-pos [cx cy]})]
@@ -54,9 +63,31 @@
         new-st (stroke/update-state st {:last-pos [cx cy]})]
     [final-color new-st]))
 
+
+(defmethod compute-mix :dulling
+  [_ base-fg params st canvas cx cy]
+  (let [;; 钝化强度：0 = 完全用采样色，1 = 完全用前景色
+        dulling-ratio (get params :dulling-ratio 0.5)
+        ;; 整体不透明度
+        dulling-opacity (get params :dulling-opacity 1.0)
+        ;; 采样画布当前点颜色
+        bg (p/get-pixel canvas cx cy)
+        bg-rgb (subvec bg 0 3)
+        ;; 前景色
+        fg-rgb (subvec base-fg 0 3)
+        ;; 混合前景与采样色
+        dulled-rgb (util/lerp bg-rgb fg-rgb dulling-ratio)
+        ;; 应用整体不透明度（与 base-fg alpha 结合）
+        final-a (* (peek base-fg) dulling-opacity)
+        final-color (conj (vec dulled-rgb) final-a)
+        new-st (stroke/update-state st {:last-pos [cx cy]})]
+    [final-color new-st]))
+
+
 (defmethod compute-mix :default
   [mix-mode base-fg params st canvas cx cy]
   (compute-mix :basic base-fg params st canvas cx cy))
+
 
 (defn- blit-dab
   "将 dab 遮罩逐像素混合到画布上，并应用后处理。"
