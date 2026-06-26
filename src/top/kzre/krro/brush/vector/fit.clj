@@ -1,6 +1,6 @@
 (ns top.kzre.krro.brush.vector.fit
-  "三次贝塞尔曲线拟合：使用自适应误差分段 (FitCurve) 算法，
-   保证段间 G1 连续性（切线方向一致）。"
+  "三次贝塞尔曲线拟合：使用自适应误差分段 (FitCurve) 算法。
+   处理退化情况（点不足、共线），保证数值稳定性。"
   (:require [top.kzre.krro.brush.util :as util]
             [top.kzre.krro.brush.support.linear :as linear]))
 
@@ -15,6 +15,18 @@
             total (apply + dists)
             cum   (reductions + dists)]
         (mapv #(/ % total) (cons 0 cum))))))
+
+;; 检查点集是否近似共线（叉积和接近零）
+(defn- collinear?
+  [points]
+  (let [p0 (pos (first points))
+        pn (pos (last points))
+        dir (mapv - pn p0)
+        dir-len (util/length dir)]
+    (if (< dir-len 1e-10) true ;; 所有点重合
+                          (let [perp [(- (second dir)) (first dir)]
+                                dists (map #(Math/abs (util/dot (mapv - (pos %) p0) perp)) (rest (butlast points)))]
+                            (every? #(< % 1e-6) dists)))))
 
 (defn- fit-single-bezier
   [pts ts]
@@ -39,8 +51,10 @@
     (if-let [sol-x (linear/solve-2x2 ATA bx)]
       (if-let [sol-y (linear/solve-2x2 ATA by)]
         [P0 [(first sol-x) (first sol-y)] [(second sol-x) (second sol-y)] P3]
+        ;; 退化为三等分
         [P0 (mapv + P0 (mapv #(/ % 3) (mapv - P3 P0)))
          (mapv - P3 (mapv #(/ % 3) (mapv - P3 P0))) P3])
+      ;; 退化为三等分
       [P0 (mapv + P0 (mapv #(/ % 3) (mapv - P3 P0)))
        (mapv - P3 (mapv #(/ % 3) (mapv - P3 P0))) P3])))
 
@@ -59,32 +73,42 @@
                       pts)))
 
 (defn- fit-curve*
-  "内部递归实现，返回段列表（可能为惰性序列）。"
   [points max-error]
   (if (< (count points) 2)
     []
-    (let [ts (chord-length-parameterize points)
-          bezier (fit-single-bezier points ts)
-          err (compute-error points bezier ts)]
-      (if (or (<= err max-error) (<= (count points) 3))
-        (let [avg-pressure (/ (apply + (map :pressure points)) (count points))]
-          [{:start (first bezier)
-            :cp1 (second bezier)
-            :cp2 (nth bezier 2)
-            :end (nth bezier 3)
-            :pressure avg-pressure}])
-        (let [split-idx (atom 0)
-              max-dist (atom 0.0)]
-          (doseq [i (range (count points))]
-            (let [curve-pt (evaluate-bezier bezier (nth ts i))
-                  dist (util/distance (pos (nth points i)) curve-pt)]
-              (when (> dist @max-dist)
-                (reset! max-dist dist)
-                (reset! split-idx i))))
-          (let [left-pts (subvec (vec points) 0 (inc @split-idx))
-                right-pts (subvec (vec points) @split-idx)]
-            (concat (fit-curve* left-pts max-error)
-                    (fit-curve* right-pts max-error))))))))
+    (if (collinear? points)
+      ;; 共线：直接生成直线贝塞尔
+      (let [P0 (pos (first points))
+            P3 (pos (last points))
+            avg-pressure (/ (apply + (map :pressure points)) (count points))]
+        [{:start P0
+          :cp1 (mapv + P0 (mapv #(/ % 3) (mapv - P3 P0)))
+          :cp2 (mapv - P3 (mapv #(/ % 3) (mapv - P3 P0)))
+          :end P3
+          :pressure avg-pressure}])
+      ;; 正常拟合
+      (let [ts (chord-length-parameterize points)
+            bezier (fit-single-bezier points ts)
+            err (compute-error points bezier ts)]
+        (if (or (<= err max-error) (<= (count points) 3))
+          (let [avg-pressure (/ (apply + (map :pressure points)) (count points))]
+            [{:start (first bezier)
+              :cp1 (second bezier)
+              :cp2 (nth bezier 2)
+              :end (nth bezier 3)
+              :pressure avg-pressure}])
+          (let [split-idx (atom 0)
+                max-dist (atom 0.0)]
+            (doseq [i (range (count points))]
+              (let [curve-pt (evaluate-bezier bezier (nth ts i))
+                    dist (util/distance (pos (nth points i)) curve-pt)]
+                (when (> dist @max-dist)
+                  (reset! max-dist dist)
+                  (reset! split-idx i))))
+            (let [left-pts (subvec (vec points) 0 (inc @split-idx))
+                  right-pts (subvec (vec points) @split-idx)]
+              (concat (fit-curve* left-pts max-error)
+                      (fit-curve* right-pts max-error)))))))))
 
 (defn fit-curve
   "将点序列自适应分段拟合为贝塞尔曲线列表，返回向量。"

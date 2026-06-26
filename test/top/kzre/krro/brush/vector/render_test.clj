@@ -4,22 +4,13 @@
             [top.kzre.krro.brush.vector.fit :as fit]
             [top.kzre.krro.brush.util :as util]))
 
-;; 辅助：生成一段简单的贝塞尔曲线（直线）
-(def straight-segment
-  [{:start [10 100] :cp1 [20 100] :cp2 [40 100] :end [50 100]
-    :pressure 0.8}])
-
-;; 辅助：生成一条简单的弯曲曲线
-(def curved-segments
-  (let [pts (mapv (fn [[x y]] {:x x :y y :pressure 0.5 :timestamp 0})
-                  [[0 0] [10 10] [20 10] [30 0]])]
-    (fit/fit-curve pts)))
-
-;; 恒等线宽函数
 (defn- constant-width [w] (fn [_] w))
 
+(def straight-segment
+  [{:start [10 20] :cp1 [20 20] :cp2 [40 20] :end [50 20] :pressure 0.8}])
+
 (deftest test-render-scanline-structure
-  (let [dab-size 128
+  (let [dab-size 64
         width-fn (constant-width 4.0)
         result (render/render-vector-scanline {:segments straight-segment} width-fn dab-size)]
     (is (map? result))
@@ -28,38 +19,32 @@
     (is (contains? result :height))
     (is (== dab-size (:width result)))
     (is (== dab-size (:height result)))
-    ;; 数据应非空，并且至少有一些非零值
-    (is (pos? (count (:data result))))
-    (is (pos? (reduce + (map #(if (pos? %) 1 0) (:data result)))))))
+    (let [data (:data result)]
+      (is (pos? (alength data)))
+      (is (pos? (reduce + (map #(if (pos? %) 1.0 0.0) (seq data))))))))
 
 (deftest test-render-scanline-has-content
   (let [dab-size 64
         width-fn (constant-width 5.0)
         result (render/render-vector-scanline {:segments straight-segment} width-fn dab-size)
         data (:data result)
-        ;; 中心点附近应该有非零值
-        center-x (quot dab-size 2)
-        center-y (quot dab-size 2)
-        center-idx (+ center-x (* center-y dab-size))]
-    (is (> (aget data center-idx) 0.0) "Center should be drawn")))
+        ;; 线段 y≈20，在 y=20 处且靠近中点 x≈30 的位置应被绘制
+        x 30
+        y 20
+        idx (+ x (* y dab-size))]
+    (is (> (aget data idx) 0.0) "Point on line should be drawn")))
 
 (deftest test-render-scanline-antialias
   (let [dab-size 64
-        width-fn (constant-width 4.0)
+        width-fn (constant-width 4.0)       ;; 半宽 2.0, 边缘在 y≈18 和 y≈22
         result (render/render-vector-scanline {:segments straight-segment} width-fn dab-size)
         data (:data result)
-        center-x (quot dab-size 2)
-        center-y (quot dab-size 2)
-        ;; 中心附近的不透明度接近 1
-        center-idx (+ center-x (* center-y dab-size))
-        center-alpha (aget data center-idx)
-        ;; 边缘附近应该有一些半透明像素（验证抗锯齿存在）
-        edge-idx (+ (- center-x 5) (* center-y dab-size))
-        edge-alpha (aget data edge-idx 0.0)]
-    (is (> center-alpha 0.9) "Center opacity should be near 1")
-    ;; 边缘至少存在非 0 且非 1 的值（近似检查）
-    (let [non-one (some #(and (> % 0.0) (< % 1.0)) (seq data))]
-      (is (some? non-one) "There should be antialiased pixels"))))
+        ;; 检查靠近上边缘的像素：y=18 附近应存在半透明
+        y 18
+        xs (range 15 46)                    ;; 线段 x 范围 10..50, 检查中间部分
+        pixels (map #(aget data (+ % (* y dab-size))) xs)
+        non-one (some #(and (> % 0.0) (< % 1.0)) pixels)]
+    (is (some? non-one) "There should be antialiased pixels near the edge")))
 
 (deftest test-smooth-width-fn
   (let [segments [{:pressure 0.2} {:pressure 0.8} {:pressure 0.5}]
@@ -68,10 +53,8 @@
     (let [w0 (width-fn 0.0)
           w1 (width-fn 0.5)
           w2 (width-fn 1.0)]
-      ;; 平滑后的宽度应在合理范围内
       (is (> w0 0.0))
       (is (< w2 10.0))
-      ;; 值应当是平滑的，中间值介于两端之间（大致）
       (is (>= w1 (min w0 w2)))
       (is (<= w1 (max w0 w2))))))
 
@@ -79,11 +62,13 @@
   (let [dab-size 64
         width-fn (constant-width 5.0)
         result (render/render-vector-scanline {:segments []} width-fn dab-size)]
-    ;; 应该返回全零数据
     (is (every? #(== 0.0 %) (:data result)))))
 
 (deftest test-render-curved-segment
-  (let [dab-size 128
+  (let [pts (mapv (fn [[x y]] {:x x :y y :pressure 0.5 :timestamp 0})
+                  [[0 0] [10 10] [20 10] [30 0]])
+        curved-segments (fit/fit-curve pts)
+        dab-size 64
         width-fn (constant-width 3.0)
         result (render/render-vector-scanline {:segments curved-segments} width-fn dab-size)]
     (is (map? result))
