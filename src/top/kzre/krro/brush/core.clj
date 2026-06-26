@@ -103,7 +103,8 @@
             (when (and (>= canvas-x 0) (< canvas-x canvas-w)
                        (>= canvas-y 0) (< canvas-y canvas-h))
               (let [bg    (p/get-pixel (:canvas @result) canvas-x canvas-y)
-                    mixed (mixer fg-color bg (* opacity alpha) mix-mode)
+                    ;; ** 使用协议方法 mix-colors **
+                    mixed (p/mix-colors mixer fg-color bg (* opacity alpha) mix-mode)
                     final (cond-> mixed
                                   water-edge?
                                   (post/apply-watercolor-edge dab-mask px py alpha edge-intensity)
@@ -129,7 +130,8 @@
       :or {smoother-impl smoother/smooth
            dynamics-impl dynamics/map-dynamics
            dab-impl      dab/generate-dab
-           mixer-impl    mix/default-mix-colors}}]
+           ;; ** 默认使用实现了 IColorMixer 协议的 DefaultMixer 实例 **
+           mixer-impl    mix/default-mixer}}]
   (let [vector-spec (:vector brush-def)]
     (if vector-spec
       ;; 矢量笔刷分支
@@ -178,6 +180,7 @@
                   dab-mask (dab-impl dab-spec params)
                   [fg new-st] (compute-mix mix-mode base-fg params st canvas cx cy)
                   dab-full (assoc dab-mask :cx cx :cy cy)
+                  ;; ** mixer-impl 是实现了 IColorMixer 协议的记录 **
                   {:keys [canvas dirty-rect]} (blit-dab canvas dab-full fg opacity mix-mode mixer-impl post-spec paper-tex)]
               {:canvas canvas
                :dirty-rects (conj dirty-rects dirty-rect)
