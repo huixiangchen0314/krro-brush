@@ -12,7 +12,7 @@
 (defmethod apply-curve :quadratic [x _] (* x x))
 (defmethod apply-curve :cubic [x _] (* x x x))
 (defmethod apply-curve :sqrt [x _] (Math/sqrt x))
-(defmethod apply-curve :inv-sigmoid [x _] (util/sigmoid (- 1.0 x)))
+(defmethod apply-curve :inv-sigmoid [x _] (- 1.0 (util/sigmoid x)))
 (defmethod apply-curve :default [x _] (double x))
 
 ;; 新增 bezier 和 lookup 曲线方法
@@ -37,7 +37,11 @@
         v2 (nth table (min (inc i) (dec n)))]
     (util/lerp v1 v2 t)))
 
+;; ── 主映射函数 ────────────────────────────────────────
 (defn map-dynamics
+  "根据动力学规格 dynamics-spec 和当前传感器事件 input-event，
+   对 dab 基础参数 dab-base 进行动力学放大，返回更新后的 dab 参数 map。
+   注意：映射后的值**不会**被自动钳制到 [0,1]，由调用方根据需要处理。"
   [dab-base dynamics-spec input-event]
   (reduce-kv
     (fn [params sensor-name mapping]
@@ -52,7 +56,7 @@
           (fn [params param-name {:keys [curve min max] :or {curve :linear, min 0.0, max 1.0}}]
             (let [curved (apply-curve raw curve)
                   mapped (+ (double min) (* (- (double max) (double min)) curved))]
-              (assoc params param-name (util/clamp 0.0 1.0 mapped))))
+              (assoc params param-name mapped)))  ;; 移除强制 clamp
           params
           mapping)))
     dab-base
