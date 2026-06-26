@@ -55,7 +55,8 @@
            dab-impl      dab/generate-dab
            mixer-impl    mix/default-mix-colors
            post-impl     post/apply-post}}]
-  (let [stroke-spec (:stroke brush-def)
+  (let [taper (:taper dab-impl 1.0)  ;; 从平滑器获取
+        stroke-spec (:stroke brush-def)
         dyn-spec    (:dynamics brush-def)
         dab-spec    (:dab brush-def)
         color-spec  (:color brush-def)
@@ -72,7 +73,7 @@
                             (first input-events))
                 ;; 2. 动力学映射
                 params  (dynamics-impl dab-base dyn-spec event)
-                opacity (:opacity params 1.0)
+                opacity (* (:opacity params 1.0) taper)
                 cx      (:x params)
                 cy      (:y params)
                 ;; 3. 笔尖生成
