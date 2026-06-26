@@ -29,9 +29,9 @@
 
 ;; ── 颜色行为 (Color) 规格 ──────────────────────────────
 (s/def ::color-source #{:foreground :gradient :track})
-(s/def ::blend-model #{:basic :sai-carry :kubelka-munk :smear})
+(s/def ::blend-model #{:basic :colored-brush :kubelka-munk :smear})  ;; 修改这里
 (s/def ::carry-decay (s/and number? #(<= 0.0 % 1.0)))
-(s/def ::pigment-lib (s/nilable map?)) ;; 颜料库，可空
+(s/def ::pigment-lib (s/nilable map?))
 
 (s/def ::color
   (s/keys :req-un [::color-source ::blend-model]

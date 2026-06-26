@@ -1,7 +1,7 @@
 (ns top.kzre.krro.brush.core
   "笔刷引擎核心：组装五层管线，执行笔触渲染。
-   所有组件均通过参数注入，默认使用内置实现。
-   画布通过 ICanvas 协议操作，颜色混合通过 IColorMixer 协议。"
+   内置 :colored-brush 混色模型（SAI 风格 carry），支持压感调节混合比与衰减。
+   所有组件均通过参数注入，默认使用内置实现。"
   (:require
     [top.kzre.krro.brush.protocol :as p]
     [top.kzre.krro.brush.smoother :as smoother]
@@ -13,10 +13,7 @@
     [top.kzre.krro.brush.util :as util]))
 
 (defn- blit-dab
-  "将 dab 遮罩逐像素混合到画布上。
-   dab-mask 是 {:data [double] :width w :height h} 的 map，
-   其 :cx, :cy 字段指示 dab 中心在画布上的坐标。
-   使用 ICanvas 协议读取背景像素并写回混合结果。"
+  "将 dab 遮罩逐像素混合到画布上。"
   [canvas dab-mask fg-color opacity mix-mode mixer]
   (let [w       (:width dab-mask)
         h       (:height dab-mask)
@@ -47,17 +44,8 @@
 
 (defn render-stroke
   "笔触渲染主入口。
-   参数：
-     brush-def     – 笔刷定义 map（符合 brush.spec）
-     canvas        – 实现了 ICanvas 的画布状态
-     input-events  – 输入事件序列（每个事件为 map，至少包含 :x :y）
-   可选参数（用于注入自定义实现）：
-     :smoother-impl   – 实现 ISmoother 的函数，默认使用 smoother/smooth
-     :dynamics-impl   – 实现 IDynamicsMapper 的函数，默认 dynamics/map-dynamics
-     :dab-impl        – 实现 IDabGenerator 的函数，默认 dab/generate-dab
-     :mixer-impl      – 实现 IColorMixer 的函数，默认 mix/default-mix-colors
-     :post-impl       – 实现 IPostProcessor 的函数，默认 post/apply-post
-   返回更新后的画布状态。"
+   内置 :colored-brush 混色模型支持。
+   可选参数注入自定义实现。"
   [brush-def canvas input-events
    & {:keys [smoother-impl dynamics-impl dab-impl mixer-impl post-impl]
       :or {smoother-impl smoother/smooth
@@ -70,46 +58,44 @@
         dab-spec    (:dab brush-def)
         color-spec  (:color brush-def)
         post-spec   (:post brush-def)
+        mix-mode    (:blend-model color-spec :basic)
+        base-fg     (get color-spec :color [0 0 0 1])
         ;; 1. 平滑
         dab-bases   (smoother-impl input-events stroke-spec)
-        ;; 初始笔触状态
         initial-st  (stroke/init-state)]
-    ;; 2. 逐个 dab 渲染，reduce 累加器为 [canvas-state stroke-state]
     (first
       (reduce
         (fn [[canvas-state st] dab-base]
-          (let [;; 匹配输入事件（简化：取第一个事件，实际应基于时间戳）
-                event   (some #(when (= (:timestamp %) (:timestamp dab-base)) %) input-events)
-                event   (or event (first input-events))
-                ;; 3. 动力学映射
+          (let [event   (or (some #(when (= (:timestamp %) (:timestamp dab-base)) %) input-events)
+                            (first input-events))
+                ;; 2. 动力学映射
                 params  (dynamics-impl dab-base dyn-spec event)
-                ;; 4. 笔尖生成
-                dab-mask (dab-impl dab-spec params)
-                ;; 提取参数
+                opacity (:opacity params 1.0)
                 cx      (:x params)
                 cy      (:y params)
-                fg      (get color-spec :color [0 0 0 1])
-                mix-mode (:blend-model color-spec :basic)
-                opacity (:opacity params 1.0)
-                ;; 5. 颜色混合（可能使用 stroke 状态）
-                ;; 注意：对于 :sai-carry 混色模型，应在混合前将 carry-color 传递给 mixer
-                mixed   (mixer-impl fg
-                                    (p/get-pixel canvas-state cx cy) ;; 取中心像素作为背景，但 blit-dab 内会逐像素混合
-                                    opacity mix-mode)
-                ;; 实际上 mixer-impl 在这里未被逐像素调用，blit-dab 内部会调用 mixer，
-                ;; 因此这里只需生成遮罩并交给 blit-dab，混合在 blit-dab 中完成。
-                ;; 修正：我们直接调用 blit-dab 进行整个 dab 的混合，而不是预先混合中心颜色。
-                ;; 所以这里不需要单独调用 mixer-impl。
-                ;; 将 dab-mask 补充中心坐标
+                ;; 3. 笔尖生成
+                dab-mask (dab-impl dab-spec params)
+                ;; 4. 根据混色模型计算最终前景色
+                [fg new-st]
+                (if (= mix-mode :colored-brush)
+                  (let [;; 从状态取 carry-color，若无则用基础前景色
+                        carry  (get st :carry-color (subvec base-fg 0 3))
+                        ;; 采样画布中心点背景色
+                        bg     (p/get-pixel canvas-state cx cy)
+                        ;; 用混合器混合前景与背景（普通混合）
+                        blended (mixer-impl base-fg bg opacity mix-mode)
+                        blended-rgb (subvec blended 0 3)
+                        ;; 与携带颜色混合
+                        decay  (:carry-decay params 0.5)
+                        final-color (conj (vec (util/lerp carry blended-rgb decay)) (peek blended))
+                        new-st (stroke/update-state st {:carry-color (subvec final-color 0 3)
+                                                        :last-pos [cx cy]})]
+                    [final-color new-st])
+                  ;; 默认：无 carry 处理，仅更新位置
+                  [base-fg (stroke/update-state st {:last-pos [cx cy]})])
+                ;; 5. 将 dab 混合到画布
                 dab-full (assoc dab-mask :cx cx :cy cy)
-                ;; 6. 将 dab 混合到画布（内部会调用 mixer-impl 逐像素）
-                new-canvas (blit-dab canvas-state dab-full fg opacity mix-mode mixer-impl)
-                ;; 7. 后处理（暂不逐像素后处理，blit-dab 后没有局部图像，后处理需在 dab 混合前或整体后处理）
-                ;; 当前后处理留空，未来可扩展
-                ;; 8. 更新笔触状态（根据混色模型）
-                new-st (if (= mix-mode :sai-carry)
-                         (stroke/update-state st {:carry-color mixed :last-pos [cx cy]})
-                         (stroke/update-state st {:last-pos [cx cy]}))]
+                new-canvas (blit-dab canvas-state dab-full fg opacity mix-mode mixer-impl)]
             [new-canvas new-st]))
         [canvas initial-st]
         dab-bases))))
