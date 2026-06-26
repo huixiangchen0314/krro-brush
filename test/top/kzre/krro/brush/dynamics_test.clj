@@ -98,3 +98,20 @@
         input-event {:pressure 0.5}
         result (dynamics/map-dynamics dab-base dyn-spec input-event)]
     (is (== 10.0 (:radius result)))))
+
+(deftest test-sensor-tilt-normalization
+  ;; 无倾斜时，默认值为 0.5
+  (is (== 0.5 (dynamics/sensor-value :tilt-x {:input-event {}})))
+  (is (== 0.5 (dynamics/sensor-value :tilt-y {:input-event {}})))
+  ;; 有倾斜时应在 0~1 之间
+  (let [event {:tilt {:x 30.0 :y -20.0}}
+        tx (dynamics/sensor-value :tilt-x {:input-event event})
+        ty (dynamics/sensor-value :tilt-y {:input-event event})]
+    (is (> tx 0.5) "Positive X tilt should be > 0.5")
+    (is (< ty 0.5) "Negative Y tilt should be < 0.5")))
+
+(deftest test-sensor-rotation-normalization
+  (is (== 0.0 (dynamics/sensor-value :rotation {:input-event {:rotation 0.0}})))
+  (is (== 0.25 (dynamics/sensor-value :rotation {:input-event {:rotation 90.0}})))
+  (is (== 0.5 (dynamics/sensor-value :rotation {:input-event {:rotation 180.0}})))
+  (is (== 0.75 (dynamics/sensor-value :rotation {:input-event {:rotation 270.0}}))))

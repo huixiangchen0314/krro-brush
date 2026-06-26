@@ -20,20 +20,29 @@
   (let [v (:velocity input-event 1.0)]
     (if (number? v) (double v) 1.0)))
 
+;; 倾斜 X/Y 归一化：通常倾斜角度在 -60° 到 60° 之间，
+;; 我们将其映射到 0~1 范围（0.5 表示垂直，0 表示向左/上最大倾斜，1 表示向右/下最大倾斜）
 (defmethod sensor-value :tilt-x
   [_ {:keys [input-event]}]
-  (let [v (get-in input-event [:tilt :x] 0.5)]
-    (if (number? v) (double v) 0.5)))
+  (let [v (get-in input-event [:tilt :x] 0.0)
+        max-tilt 60.0
+        normalized (/ (double v) max-tilt)]
+    (util/clamp 0.0 1.0 (+ 0.5 (/ normalized 2.0)))))
 
 (defmethod sensor-value :tilt-y
   [_ {:keys [input-event]}]
-  (let [v (get-in input-event [:tilt :y] 0.5)]
-    (if (number? v) (double v) 0.5)))
+  (let [v (get-in input-event [:tilt :y] 0.0)
+        max-tilt 60.0
+        normalized (/ (double v) max-tilt)]
+    (util/clamp 0.0 1.0 (+ 0.5 (/ normalized 2.0)))))
 
+;; 旋转：0~360 度，映射到 0~1
 (defmethod sensor-value :rotation
   [_ {:keys [input-event]}]
   (let [v (:rotation input-event 0.0)]
-    (if (number? v) (double v) 0.0)))
+    (if (number? v)
+      (/ (mod (double v) 360.0) 360.0)
+      0.0)))
 
 (defmethod sensor-value :default
   [_ _]
