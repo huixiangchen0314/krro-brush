@@ -157,11 +157,9 @@
             width-dynamics (get vector-spec :width-dynamics :pressure)
             dab-size (get vector-spec :dab-size 512)
             fitted (vfit/fit-curve input-events)
-            width-fn (fn [t]
-                       (let [seg (nth fitted (min (dec (count fitted)) (int (* t (count fitted)))))
-                             pressure (:pressure seg 1.0)]
-                         (* base-width pressure)))
-            dab-mask (vrender/render-vector {:segments fitted} width-fn dab-size)
+            smooth-width-fn (vrender/create-smooth-width-fn fitted base-width 2)
+            width-fn (fn [t] (smooth-width-fn t))
+            dab-mask (vrender/render-vector-scanline {:segments fitted} width-fn dab-size)
             color-spec (:color brush-def)
             fg (get color-spec :color [0 0 0 1])
             mix-mode (:blend-model color-spec :basic)
