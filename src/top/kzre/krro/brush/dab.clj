@@ -206,6 +206,70 @@
                        (* a1 a2)))))
     {:data data :width size :height size}))
 
+;; ── 喷溅笔尖 ───────────────────────────────────────
+(defmethod generate-dab* :splatter [dab-spec params]
+  (let [size (int (* 2 (get params :radius 10.0)))
+        radius (get params :radius 10.0)
+        mask-type (get dab-spec :mask-type :soft)
+        center (/ size 2.0)
+        data (double-array (* size size) 0.0)
+        ;; 随机参数（使用固定种子以保证可复现）
+        splatter-count (get dab-spec :splatter-count 20)
+        splatter-size (get dab-spec :splatter-size 0.3)  ;; 每个小点占半径的比例
+        ;; 简单伪随机数生成（线性同余发生器）
+        seed (hash (cache-key dab-spec params))
+        rand-state (atom seed)
+        rand-next (fn [] (swap! rand-state #(mod (+ (* 1103515245 %) 12345) (bit-shift-left 1 31))) (double (/ @rand-state (bit-shift-left 1 31))))]
+    ;; 绘制多个小圆点
+    (dotimes [_ splatter-count]
+      (let [;; 随机极坐标
+            angle (* 2 Math/PI (rand-next))
+            dist (* radius (Math/sqrt (rand-next)))  ;; sqrt 让点在圆内均匀分布
+            sx (+ center (* dist (Math/cos angle)))
+            sy (+ center (* dist (Math/sin angle)))
+            spot-radius (* radius splatter-size)]
+        ;; 遍历小点周围的像素
+        (doseq [y (range (max 0 (int (- sy spot-radius))) (min size (int (+ sy spot-radius 1))))
+                x (range (max 0 (int (- sx spot-radius))) (min size (int (+ sx spot-radius 1))))]
+          (let [dx (- x sx)
+                dy (- y sy)
+                dist (Math/sqrt (+ (* dx dx) (* dy dy)))
+                alpha (apply-mask dist spot-radius mask-type)]
+            (when (> alpha 0.0)
+              (let [idx (+ x (* y size))]
+                (aset-double data idx (max (aget data idx) alpha))))))))
+    {:data data :width size :height size}))
+
+;; ── 纹理印章笔尖 ────────────────────────────────────
+(defmethod generate-dab* :texture-stamp [dab-spec params]
+  (let [size (int (* 2 (get params :radius 10.0)))
+        radius (get params :radius 10.0)
+        mask-type (get dab-spec :mask-type :soft)
+        texture-data (get dab-spec :texture-data)
+        center (/ size 2.0)
+        data (double-array (* size size) 0.0)]
+    (if texture-data
+      (let [tw (:width texture-data) th (:height texture-data)
+            tarr (:data texture-data)
+            src-cx (/ tw 2.0) src-cy (/ th 2.0)
+            scale (/ radius (max src-cx src-cy))]  ;; 缩放纹理使最长边等于半径
+        (doseq [y (range size)
+                x (range size)]
+          (let [;; 逆映射：dab 坐标 -> 纹理坐标
+                dx (- x center)
+                dy (- y center)
+                sx (+ (* dx (/ 1.0 scale)) src-cx)
+                sy (+ (* dy (/ 1.0 scale)) src-cy)
+                tex-alpha (bilinear-sample tarr tw th sx sy)
+                ;; 可选蒙版（软边圆形裁剪）
+                dist (Math/sqrt (+ (* dx dx) (* dy dy)))
+                mask (apply-mask dist radius mask-type)
+                alpha (* tex-alpha mask)]
+            (aset-double data (+ x (* y size)) (util/clamp 0.0 1.0 alpha)))))
+      ;; 无纹理时回退为圆形
+      (generate-dab* (assoc dab-spec :type :circle) params))
+    {:data data :width size :height size}))
+
 (defmethod generate-dab* :default [dab-spec params]
   (generate-dab* {:type :circle} params))
 

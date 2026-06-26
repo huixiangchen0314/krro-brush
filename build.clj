@@ -5,8 +5,8 @@
 (def version "0.1.0")
 (def class-dir "target/classes")
 (def basis (b/create-basis {:project "deps.edn"}))
-(def jar-file "target/krro-color-0.1.0.jar")            ;; 硬编码，与 Makefile 一致
-(def uber-file "target/krro-color-0.1.0-standalone.jar")
+(def jar-file "target/krro-brush-0.1.0.jar")            ;; 硬编码，与 Makefile 一致
+(def uber-file "target/krro-brush-0.1.0-standalone.jar")
 
 (defn clean [_]
       (b/delete {:path "target"}))
@@ -18,9 +18,9 @@
                     :version version
                     :basis basis
                     :src-dirs ["src"]
-                    :scm {:url "https://github.com/topkzre/krro-color"
-                          :connection "scm:git:git://github.com/topkzre/krro-color.git"
-                          :developerConnection "scm:git:ssh://git@github.com:topkzre/krro-color.git"}})
+                    :scm {:url "https://github.com/topkzre/krro-brush"
+                          :connection "scm:git:git://github.com/topkzre/krro-brush.git"
+                          :developerConnection "scm:git:ssh://git@github.com:topkzre/krro-brush.git"}})
       (b/copy-dir {:src-dirs ["src" "resources"] :target-dir class-dir})
       (b/jar {:class-dir class-dir
               :jar-file jar-file})
