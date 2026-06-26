@@ -16,14 +16,17 @@
   (let [step (* spacing diameter)]
     (loop [remaining pts
            result   []
-           last-pos nil]
+           last-x nil
+           last-y nil]
       (if (empty? remaining)
         result
         (let [pt  (first remaining)
-              pos (:position pt)]
-          (if (or (nil? last-pos) (>= (util/distance last-pos pos) step))
-            (recur (rest remaining) (conj result pt) pos)
-            (recur (rest remaining) result last-pos)))))))
+              x   (:x pt)
+              y   (:y pt)]
+          (if (or (nil? last-x)
+                  (>= (util/distance [last-x last-y] [x y]) step))
+            (recur (rest remaining) (conj result pt) x y)
+            (recur (rest remaining) result last-x last-y)))))))
 
 (defn- gaussian-smooth
   [pts window-size]
@@ -34,8 +37,13 @@
         (let [start (max 0 (- i half))
               end   (min n (+ i half 1))
               window (subvec (vec pts) start end)
-              avg-pos (util/avg-point (map :position pts))]
-          (assoc pt :position avg-pos)))
+              ;; 直接计算窗口内 :x :y 的平均值
+              xs (map :x window)
+              ys (map :y window)
+              nw (count window)
+              avg-x (/ (apply + xs) nw)
+              avg-y (/ (apply + ys) nw)]
+          (assoc pt :x avg-x :y avg-y)))
       pts)))
 
 (defn- kalman-smooth-points
@@ -98,6 +106,7 @@
                   :else 1.0)]
           (assoc dab :taper t)))
       dabs)))
+
 
 (defmulti smooth
           "根据 stroke-spec 中的 :stabilizer 选择平滑算法。
