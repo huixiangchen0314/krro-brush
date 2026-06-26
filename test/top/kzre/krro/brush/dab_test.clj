@@ -4,6 +4,7 @@
 
 (def default-params {:radius 10.0})
 (def circle-spec {:type :circle :mask-type :soft})
+(def default-splatter-spec {:type :splatter :splatter-count 15 :mask-type :soft})
 
 (deftest test-generate-circle-dab-structure
   (let [dab (dab/generate-dab circle-spec default-params)]
@@ -92,7 +93,7 @@
     (is (pos? (:width dab)))))
 
 (deftest test-splatter-dab
-  (let [dab (dab/generate-dab {:type :splatter :splatter-count 15 :mask-type :soft} {:radius 10.0})]
+  (let [dab (dab/generate-dab default-splatter-spec {:radius 10.0})]
     (is (map? dab))
     ;; 至少应该有一些非零像素
     (is (pos? (reduce + (seq (:data dab)))))))
@@ -110,6 +111,19 @@
         dab2 (dab/generate-dab circle-spec default-params)]
     (is (= (seq (:data dab1)) (seq (:data dab2))))
     (is (= (:width dab1) (:width dab2)))))
+
+(deftest test-splatter-reproducible
+  ;; 两次使用相同种子应产生完全相同的 dab
+  (let [spec (assoc default-splatter-spec :seed 42)
+        dab1 (dab/generate-dab spec default-params)
+        dab2 (dab/generate-dab spec default-params)]
+    (is (= (seq (:data dab1)) (seq (:data dab2)))))
+  ;; 不同种子应产生不同的 dab（概率极高，但不绝对）
+  (let [spec1 (assoc default-splatter-spec :seed 123)
+        spec2 (assoc default-splatter-spec :seed 456)
+        dab1 (dab/generate-dab spec1 default-params)
+        dab2 (dab/generate-dab spec2 default-params)]
+    (is (not= (seq (:data dab1)) (seq (:data dab2))))))
 
 (deftest test-edge-cases
   ;; 零半径

@@ -4,6 +4,17 @@
    全部纯函数，无外部依赖。"
   (:require [top.kzre.krro.brush.util :as util]))
 
+;; 在文件顶部添加伪随机数生成器（线性同余）
+(defn- lcg-rand
+  "线性同余伪随机数生成器，返回 [next-seed, rand-val]。
+   seed 为 long，返回 0..1 之间的 double。"
+  [^long seed]
+  (let [a 1103515245
+        c 12345
+        m (bit-shift-left 1 31)
+        next-seed (mod (+ (* a seed) c) m)]
+    [next-seed (double (/ next-seed m))]))
+
 (defn- bilinear-sample
   [data w h x y]
   (let [x0 (int (Math/floor x)) y0 (int (Math/floor y))
@@ -46,6 +57,10 @@
                [t (get params :radius 10.0) (get params :scale-x 1.0) (get params :scale-y 1.0)
                 (get params :angle 0.0) (hash img)])  ;; 用 hash 避免大图像比较
       :custom [t (get params :radius 10.0) (hash (:custom-fn dab-spec))]
+      :splatter
+      [:splatter (get params :radius 10.0)
+       (get dab-spec :mask-type :soft)
+       (get dab-spec :seed)]
       :dual (let [p (get dab-spec :primary) s (get dab-spec :secondary)]
               [:dual (cache-key p params) (cache-key s params) (get dab-spec :dual-blend :multiply)])
       [t (get params :radius 10.0) (get dab-spec :mask-type :soft)])))  ;; 默认
@@ -207,32 +222,42 @@
     {:data data :width size :height size}))
 
 ;; ── 喷溅笔尖 ───────────────────────────────────────
+;; 修改 :splatter 方法，加入 seed 支持
 (defmethod generate-dab* :splatter [dab-spec params]
   (let [size (int (* 2 (get params :radius 10.0)))
         radius (get params :radius 10.0)
         mask-type (get dab-spec :mask-type :soft)
         center (/ size 2.0)
         data (double-array (* size size) 0.0)
-        ;; 随机参数（使用固定种子以保证可复现）
         splatter-count (get dab-spec :splatter-count 20)
-        splatter-size (get dab-spec :splatter-size 0.3)  ;; 每个小点占半径的比例
-        ;; 简单伪随机数生成（线性同余发生器）
-        seed (hash (cache-key dab-spec params))
-        rand-state (atom seed)
-        rand-next (fn [] (swap! rand-state #(mod (+ (* 1103515245 %) 12345) (bit-shift-left 1 31))) (double (/ @rand-state (bit-shift-left 1 31))))]
-    ;; 绘制多个小圆点
-    (dotimes [_ splatter-count]
-      (let [;; 随机极坐标
-            angle (* 2 Math/PI (rand-next))
-            dist (* radius (Math/sqrt (rand-next)))  ;; sqrt 让点在圆内均匀分布
-            sx (+ center (* dist (Math/cos angle)))
-            sy (+ center (* dist (Math/sin angle)))
-            spot-radius (* radius splatter-size)]
-        ;; 遍历小点周围的像素
-        (doseq [y (range (max 0 (int (- sy spot-radius))) (min size (int (+ sy spot-radius 1))))
-                x (range (max 0 (int (- sx spot-radius))) (min size (int (+ sx spot-radius 1))))]
-          (let [dx (- x sx)
-                dy (- y sy)
+        splatter-size (get dab-spec :splatter-size 0.3)
+        ;; 获取种子：优先使用 dab-spec 中的 :seed，否则基于缓存键哈希
+        seed (or (:seed dab-spec) (hash (cache-key dab-spec params)))
+        _ (assert (integer? seed) "Seed must be an integer")
+        ;; 第一次调用，初始化状态
+        [rand-state _] (lcg-rand seed)
+        ;; 生成 splatter-count 个随机点
+        spots (loop [i 0 state rand-state res []]
+                (if (< i splatter-count)
+                  (let [[s1 r1] (lcg-rand state)
+                        [s2 r2] (lcg-rand s1)
+                        [s3 r3] (lcg-rand s2)
+                        angle (* 2 Math/PI r1)
+                        dist (* radius (Math/sqrt r2))
+                        sx (+ center (* dist (Math/cos angle)))
+                        sy (+ center (* dist (Math/sin angle)))
+                        spot-radius (* radius splatter-size)]
+                    (recur (inc i) s3 (conj res [sx sy spot-radius])))
+                  res))]
+    ;; 绘制每个小圆点
+    (doseq [[sx sy spot-radius] spots]
+      (let [min-x (max 0 (int (- sx spot-radius)))
+            max-x (min (dec size) (int (+ sx spot-radius)))
+            min-y (max 0 (int (- sy spot-radius)))
+            max-y (min (dec size) (int (+ sy spot-radius)))]
+        (doseq [y (range min-y (inc max-y))
+                x (range min-x (inc max-x))]
+          (let [dx (- x sx) dy (- y sy)
                 dist (Math/sqrt (+ (* dx dx) (* dy dy)))
                 alpha (apply-mask dist spot-radius mask-type)]
             (when (> alpha 0.0)
