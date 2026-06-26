@@ -49,16 +49,23 @@
         new-st (stroke/update-state st {:carry-color final-rgb :last-pos [cx cy]})]
     [final-color new-st]))
 
+;; 在 core.clj 中增强 :smudge 方法
 (defmethod compute-mix :smudge
   [_ base-fg params st canvas cx cy]
   (let [last-pos (:last-pos st)
-        smudge-src (if last-pos
-                     (p/get-pixel canvas (first last-pos) (second last-pos))
-                     (p/get-pixel canvas cx cy))
-        smudge-ratio (get params :smudge-ratio 0.5)
+        ;; 新增：采样半径（像素），默认 10.0
+        smudge-radius (get params :smudge-radius 10.0)
+        ;; 新增：强度 0-1，影响前景色与采样色的混合权重
+        smudge-strength (get params :smudge-strength 0.5)
+        ;; 采样位置（若无上一位置则用当前中心）
+        sample-x (or (first last-pos) cx)
+        sample-y (or (second last-pos) cy)
+        ;; 简单采样：取采样点颜色（未来可改为多点平均）
+        smudge-src (p/get-pixel canvas (int sample-x) (int sample-y))
         fg-rgb (subvec base-fg 0 3)
         src-rgb (subvec smudge-src 0 3)
-        blended (util/lerp fg-rgb src-rgb smudge-ratio)
+        ;; 混合：smudge-strength 控制采样色占比（0=全前景，1=全采样）
+        blended (util/lerp fg-rgb src-rgb smudge-strength)
         final-color (conj (vec blended) (peek base-fg))
         new-st (stroke/update-state st {:last-pos [cx cy]})]
     [final-color new-st]))

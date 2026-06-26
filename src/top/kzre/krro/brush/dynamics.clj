@@ -15,6 +15,28 @@
 (defmethod apply-curve :inv-sigmoid [x _] (util/sigmoid (- 1.0 x)))
 (defmethod apply-curve :default [x _] (double x))
 
+;; 新增 bezier 和 lookup 曲线方法
+(defmethod apply-curve :bezier
+  [x {:keys [c1 c2] :or {c1 0.25 c2 0.75}}]
+  ;; 使用三次贝塞尔曲线（由两个控制点 c1,c2 定义，范围 0-1）
+  (let [t (util/clamp 0.0 1.0 x)
+        ;; 简化的贝塞尔计算：B(t) = 3*(1-t)^2*t*c1 + 3*(1-t)*t^2*c2 + t^3
+        u (- 1 t)
+        y (+ (* 3 u u t c1)
+             (* 3 u t t c2)
+             (* t t t))]
+    (util/clamp 0.0 1.0 y)))
+
+(defmethod apply-curve :lookup
+  [x table]
+  (let [n (count table)
+        idx (* x (dec n))
+        i (int idx)
+        t (- idx i)
+        v1 (nth table i)
+        v2 (nth table (min (inc i) (dec n)))]
+    (util/lerp v1 v2 t)))
+
 (defn map-dynamics
   "根据动力学规格 dynamics-spec 和当前传感器事件 input-event，
    对 dab 基础参数 dab-base 进行动力学放大，返回更新后的 dab 参数 map。"
