@@ -7,19 +7,19 @@
 (defrecord DefaultMixer []
   p/IColorMixer
   (mix-colors [_ fg bg opacity blend-mode]
-    ;; 简单 over 混合，忽略 blend-mode
     (let [fg-rgb (pop fg) bg-rgb (pop bg)
           fg-a   (peek fg) bg-a   (peek bg)
-          a-out  (+ fg-a (* bg-a (- 1.0 (* opacity fg-a))))
+          ;; 将笔刷不透明度应用到前景 alpha
+          eff-fg-a (* fg-a opacity)
+          a-out  (+ eff-fg-a (* bg-a (- 1 eff-fg-a)))
           inv-out (if (zero? a-out) 0.0 (/ 1.0 a-out))]
       (if (zero? a-out)
         [0.0 0.0 0.0 0.0]
-        [(/ (+ (* (nth fg-rgb 0) fg-a) (* (nth bg-rgb 0) bg-a (- 1.0 (* opacity fg-a)))) a-out)
-         (/ (+ (* (nth fg-rgb 1) fg-a) (* (nth bg-rgb 1) bg-a (- 1.0 (* opacity fg-a)))) a-out)
-         (/ (+ (* (nth fg-rgb 2) fg-a) (* (nth bg-rgb 2) bg-a (- 1.0 (* opacity fg-a)))) a-out)
+        [(/ (+ (* (first fg-rgb) eff-fg-a) (* (first bg-rgb) bg-a (- 1 eff-fg-a))) a-out)
+         (/ (+ (* (second fg-rgb) eff-fg-a) (* (second bg-rgb) bg-a (- 1 eff-fg-a))) a-out)
+         (/ (+ (* (nth fg-rgb 2) eff-fg-a) (* (nth bg-rgb 2) bg-a (- 1 eff-fg-a))) a-out)
          a-out])))
   (mix-pigments [_ pigment-keys ratios]
-    ;; 默认不支持颜料混合，直接返回黑色
     [0.0 0.0 0.0]))
 
 (def default-mixer (->DefaultMixer))
