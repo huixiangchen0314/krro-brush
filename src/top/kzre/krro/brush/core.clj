@@ -7,58 +7,11 @@
     [top.kzre.krro.brush.dynamics :as dynamics]
     [top.kzre.krro.brush.dab :as dab]
     [top.kzre.krro.brush.mix :as mix]
-    [top.kzre.krro.brush.post :as post]
     [top.kzre.krro.brush.stroke :as stroke]
+    [top.kzre.krro.brush.batch.dab-renderer :as dabrender]
     [top.kzre.krro.brush.util :as util]
     [top.kzre.krro.brush.vector.fit :as vfit]
     [top.kzre.krro.brush.vector.render :as vrender]))
-
-;; ── 默认 Dab 渲染器 ─────────────────────────────────
-(defrecord DefaultDabRenderer []
-  p/IDabRenderer
-  (render-dab [_ canvas dab-mask fg-color opacity mix-mode mixer post-spec paper-texture]
-    (let [w       (:width dab-mask)
-          h       (:height dab-mask)
-          data    (:data dab-mask)
-          half-w  (quot w 2)
-          half-h  (quot h 2)
-          canvas-w (p/width canvas)
-          canvas-h (p/height canvas)
-          cx      (:cx dab-mask)
-          cy      (:cy dab-mask)
-          water-edge? (get-in post-spec [:watercolor :enable] false)
-          edge-intensity (get-in post-spec [:watercolor :intensity] 0.5)
-          paper-enabled? (and paper-texture (get-in post-spec [:paper :enable] false))
-          paper-strength (get-in post-spec [:paper :strength] 0.2)
-          result (atom {:canvas canvas :dirty-rect nil})]
-      (doseq [idx (range (* w h))]
-        (let [px (mod idx w)
-              py (quot idx w)
-              alpha (aget data idx)]
-          (when (> alpha 0.0)
-            (let [canvas-x (- cx half-w px)
-                  canvas-y (- cy half-h py)]
-              (when (and (>= canvas-x 0) (< canvas-x canvas-w)
-                         (>= canvas-y 0) (< canvas-y canvas-h))
-                (let [bg    (p/get-pixel (:canvas @result) canvas-x canvas-y)
-                      mixed (p/mix-colors mixer fg-color bg (* opacity alpha) mix-mode)
-                      final (cond-> mixed
-                                    water-edge?
-                                    (post/apply-watercolor-edge dab-mask px py alpha edge-intensity)
-                                    paper-enabled?
-                                    (post/apply-paper-texture paper-texture canvas-x canvas-y paper-strength))
-                      new-canvas (p/set-pixel! (:canvas @result) canvas-x canvas-y final)
-                      [dx dy dw dh] (if-let [[x y w' h'] (:dirty-rect @result)]
-                                      [(min x canvas-x) (min y canvas-y)
-                                       (max (+ x w') (inc canvas-x)) (max (+ y h') (inc canvas-y))]
-                                      [canvas-x canvas-y 1 1])]
-                  (swap! result assoc
-                         :canvas new-canvas
-                         :dirty-rect [dx dy (- (max (+ dx dw) (inc canvas-x)) dx)
-                                      (- (max (+ dy dh) (inc canvas-y)) dy)])))))))
-      @result)))
-
-(def default-dab-renderer (->DefaultDabRenderer))
 
 
 ;; ── 混色模型多方法 ───────────────────────────────────
@@ -133,7 +86,7 @@
            dynamics-impl dynamics/map-dynamics
            dab-impl      dab/generate-dab
            mixer-impl    mix/default-mixer
-           dab-renderer  default-dab-renderer
+           dab-renderer  dabrender/default-batch-dab-renderer
            vector-rasterizer vrender/default-vector-rasterizer}}]  ;; 需在 vector.render 中提供
   (let [vector-spec (:vector brush-def)]
     (if vector-spec
