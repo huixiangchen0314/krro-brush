@@ -1,6 +1,7 @@
 (ns top.kzre.krro.brush.smoother-test
   (:require [clojure.test :refer :all]
-            [top.kzre.krro.brush.smoother :as smoother]))
+            [top.kzre.krro.brush.smooth :as smoother]
+            [top.kzre.krro.brush.stroke :as stroke]))
 
 (defn- make-events [coords]
   (mapv (fn [[i [x y]]]
@@ -8,63 +9,34 @@
            :timestamp (* 10.0 (inc i))})
         (map-indexed vector coords)))
 
-;; 足够长的直线，确保产生大量 dab
+;; 50 个点的水平直线
 (def long-line (make-events (for [x (range 50)] [x 0.0])))
 
-(def taper-spec
-  {:stabilizer :gaussian
-   :smoothing 3
-   :spacing 0.05           ;; 步长 = 0.05 * 10 = 0.5，产生约 99 个 dab
-   :dab {:radius 5.0}
-   :taper-start 0.2
-   :taper-end 0.2})
-
-(def plain-spec
-  {:stabilizer :gaussian
-   :smoothing 3
-   :spacing 0.05
-   :dab {:radius 5.0}})
+;; 平滑规格（只包含滤波器参数）
+(def gaussian-spec {:stabilizer :gaussian :smoothing 5 :sigma 1.5})
+(def kalman-spec {:stabilizer :kalman :smoothing 0.01 :measurement-noise 0.1 :process-noise 0.01})
+(def cable-spec {:stabilizer :cable :smoothing 0.3})
 
 (deftest test-gaussian-smooth
-  (let [result (smoother/smooth long-line plain-spec)]
+  (let [result (smoother/smooth long-line gaussian-spec)]
     (is (seq result))
     (is (every? #(contains? % :x) result))
     (is (every? #(contains? % :y) result))
-    (is (<= (count result) (count long-line)))))
+    ;; 滤波后事件数不变
+    (is (= (count long-line) (count result)))))
 
 (deftest test-kalman-smooth
-  (let [result (smoother/smooth long-line
-                                {:stabilizer :kalman
-                                 :smoothing 0.01
-                                 :measurement-noise 0.1
-                                 :spacing 0.05
-                                 :dab {:radius 5.0}})]
+  (let [result (smoother/smooth long-line kalman-spec)]
     (is (seq result))
-    (is (<= (count result) (count long-line)))
+    (is (= (count long-line) (count result)))
     (is (every? #(>= (:x %) 0.0) result))))
 
 (deftest test-cable-smooth
-  (let [result (smoother/smooth long-line
-                                {:stabilizer :cable
-                                 :smoothing 0.5
-                                 :spacing 0.05
-                                 :dab {:radius 5.0}})]
+  (let [result (smoother/smooth long-line cable-spec)]
     (is (seq result))
-    (is (<= (count result) (count long-line)))))
+    (is (= (count long-line) (count result)))))
 
-(deftest test-taper
-  (let [result (smoother/smooth long-line taper-spec)]
-    (is (seq result))
-    (is (every? #(contains? % :taper) result))
-    (is (> (count result) 4) "Need enough dabs for taper to be visible")
-    (let [first-taper (:taper (first result))
-          last-taper  (:taper (last result))]
-      (is (< first-taper 1.0) "First dab should be tapered")
-      (is (< last-taper 1.0)  "Last dab should be tapered")
-      (let [mid-idx (quot (count result) 2)
-            mid-taper (:taper (nth result mid-idx))]
-        (is (== 1.0 mid-taper) "Middle dab should have full opacity")))))
 
 (deftest test-empty-input
-  (let [result (smoother/smooth [] taper-spec)]
+  (let [result (smoother/smooth [] gaussian-spec)]
     (is (empty? result))))

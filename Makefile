@@ -1,19 +1,18 @@
-.PHONY: clean test jar uberjar install repl
+.PHONY: clean compile test jar uberjar repl
+
+VERSION := 0.1.0
+JAR_FILE := target/homunculus-$(VERSION).jar
+
+all: test
 
 clean:
-	clojure -T:build clean
+	clj -T:build clean
 
-test:
-	clojure -M:test
+jar: compile
+	clj -T:build jar
 
-jar:
-	clojure -T:build jar
-
-uberjar:
-	clojure -T:build uberjar
+repl:
+	clj -M:dev
 
 install: jar
 	mvn install:install-file -Dfile=target/krro-brush-0.1.0.jar -DpomFile=pom.xml
-
-repl:
-	clojure -M:repl
