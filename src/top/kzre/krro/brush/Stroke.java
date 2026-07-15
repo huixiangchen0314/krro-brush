@@ -13,26 +13,26 @@ public final class Stroke {
      * @param canvas      画布 RGBA 数组 (w * h * 4)
      * @param w           画布宽度
      * @param h           画布高度
-     * @param maskData    dab 遮罩数据（double[], 长度 = maskW * maskH）
+     * @param maskData    dab 遮罩数据（float[], 长度 = maskW * maskH）
      * @param maskW       dab 宽度
      * @param maskH       dab 高度
      * @param cx          dab 中心在画布上的 x 坐标
      * @param cy          dab 中心在画布上的 y 坐标
-     * @param fgColor     前景色 RGBA double[4]
+     * @param fgColor     前景色 RGBA float[4]
      * @param blendMode   混合模式名称（如 "normal", "multiply"）
      * @param extraOpacity 额外不透明度（0..1）
      * @return 脏矩形 [x, y, width, height]，若无有效绘制返回 null
      */
-    public static int[] stampDab(double[] canvas, int w, int h,
-                                 double[] maskData, int maskW, int maskH,
+    public static int[] stampDab(float[] canvas, int w, int h,
+                                 float[] maskData, int maskW, int maskH,
                                  int cx, int cy,
-                                 double[] fgColor, String blendMode, double extraOpacity,
+                                 float[] fgColor, String blendMode, float extraOpacity,
                                  PixelPostprocessor postProcessor) {
         int halfW = maskW / 2;
         int halfH = maskH / 2;
         int dirtyMinX = Integer.MAX_VALUE, dirtyMinY = Integer.MAX_VALUE;
         int dirtyMaxX = Integer.MIN_VALUE, dirtyMaxY = Integer.MIN_VALUE;
-        double baseAlpha = RGB.alpha(fgColor);
+        float baseAlpha = RGB.alpha(fgColor);
 
         for (int py = 0; py < maskH; py++) {
             int rowStart = py * maskW;
@@ -40,17 +40,17 @@ public final class Stroke {
             if (canvasY < 0 || canvasY >= h) continue;
 
             for (int px = 0; px < maskW; px++) {
-                double maskAlpha = maskData[rowStart + px];
+                float maskAlpha = maskData[rowStart + px];
                 if (maskAlpha <= 0.0) continue;
 
                 int canvasX = cx - halfW + px;
                 if (canvasX < 0 || canvasX >= w) continue;
 
                 int idx = 4 * (canvasX + canvasY * w);
-                double[] bg = {canvas[idx], canvas[idx+1], canvas[idx+2], canvas[idx+3]};
-                double pixelAlpha = maskAlpha * extraOpacity;
-                double[] src = RGB.withAlpha(fgColor, baseAlpha * pixelAlpha);
-                double[] blended = Blends.blendWithAlpha(blendMode, bg, src);
+                float[] bg = {canvas[idx], canvas[idx+1], canvas[idx+2], canvas[idx+3]};
+                float pixelAlpha = maskAlpha * extraOpacity;
+                float[] src = RGB.withAlpha(fgColor, baseAlpha * pixelAlpha);
+                float[] blended = Blends.blendWithAlpha(blendMode, bg, src);
 
                 // 后处理（可原地修改 blended）
                 if (postProcessor != null) {

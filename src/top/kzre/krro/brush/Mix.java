@@ -15,11 +15,11 @@ public final class Mix {
      * @param cx     采样中心 x
      * @param cy     采样中心 y
      * @param radius 采样半径
-     * @return RGBA double[4]，各分量 0~1
+     * @return RGBA float[4]，各分量 0~1
      */
-    public static double[] sampleGaussian(double[] data, int w, int h,
-                                          double cx, double cy, double radius) {
-        if (radius <= 0.0) {
+    public static float[] sampleGaussian(float[] data, int w, int h,
+                                         float cx, float cy, float radius) {
+        if (radius <= 0.0f) {
             int x = (int) cx;
             int y = (int) cy;
             int idx = 4 * (x + y * w);
@@ -27,8 +27,8 @@ public final class Mix {
         }
 
         int r = (int) Math.ceil(radius);
-        double sigma = radius / 2.0;
-        double sumR = 0.0, sumG = 0.0, sumB = 0.0, sumA = 0.0, sumW = 0.0;
+        float sigma = radius / 2.0f;
+        float sumR = 0.0f, sumG = 0.0f, sumB = 0.0f, sumA = 0.0f, sumW = 0.0f;
 
         int minY = Math.max(0, (int) cy - r);
         int maxY = Math.min(h, (int) cy + r + 1);
@@ -37,12 +37,12 @@ public final class Mix {
 
         for (int y = minY; y < maxY; y++) {
             for (int x = minX; x < maxX; x++) {
-                double dx = x - cx;
-                double dy = y - cy;
-                double dist2 = dx * dx + dy * dy;
-                double dist = Math.sqrt(dist2);
+                float dx = x - cx;
+                float dy = y - cy;
+                float dist2 = dx * dx + dy * dy;
+                float dist = (float) Math.sqrt(dist2);
                 if (dist <= radius) {
-                    double weight = Math.exp(-0.5 * dist2 / (sigma * sigma));
+                    float weight = (float) Math.exp(-0.5f * dist2 / (sigma * sigma));
                     int idx = 4 * (x + y * w);
                     sumR += weight * data[idx];
                     sumG += weight * data[idx + 1];
@@ -53,7 +53,7 @@ public final class Mix {
             }
         }
 
-        double wgt = Math.max(sumW, 1e-12);
+        float wgt = Math.max(sumW, 1e-12f);
         return RGB.rgba(sumR / wgt, sumG / wgt, sumB / wgt, sumA / wgt);
     }
 }

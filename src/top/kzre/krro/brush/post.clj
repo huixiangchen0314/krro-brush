@@ -1,5 +1,5 @@
 (ns top.kzre.krro.brush.post
-  "后处理器：基于 color-utils 的 double[] 颜色。
+  "后处理器：基于 color-utils 的 float[] 颜色。
    直接操作画布数组 data。"
   (:require [top.kzre.krro.brush.util :as util])
   (:import [top.kzre.colorutils.color RGB]))
@@ -10,8 +10,8 @@
 ;; ── 水彩边缘效果 ──────────────────────────────────────
 (defmethod apply-post-effect :watercolor-edge
   [effect pixel _data _w _h dab-mask _brush-spec params]
-  (let [intensity (or (:intensity effect) 0.5)
-        alpha     (RGB/alpha pixel)          ;; double
+  (let [intensity (float (or (:intensity effect) 0.5))
+        alpha     (RGB/alpha pixel)          ;; float
         px        (:x params)
         py        (:y params)]
     (if (and dab-mask (> alpha 0.01) (< alpha 0.99))
@@ -21,11 +21,10 @@
             right  (if (< px (dec w)) (aget data (+ (inc px) (* py w))) alpha)
             up     (if (> py 0) (aget data (+ px (* (dec py) w))) alpha)
             down   (if (< py (dec h)) (aget data (+ px (* (inc py) w))) alpha)
-            grad (Math/sqrt (+ (Math/pow (- right left) 2)
-                               (Math/pow (- down up) 2)))
+            grad (float (Math/sqrt (+ (Math/pow (- right left) 2)
+                                      (Math/pow (- down up) 2))))
             raw-factor (* grad 5.0 intensity alpha)
             edge-factor (util/clamp01 raw-factor)
-            ;; 当前 pixel 是 double[4]
             r (aget pixel 0)
             g (aget pixel 1)
             b (aget pixel 2)
@@ -37,11 +36,11 @@
 ;; ── 纸纹合成效果 ──────────────────────────────────────
 (defmethod apply-post-effect :paper-texture
   [effect pixel _data _w _h _dab-mask brush-spec params]
-  (let [strength (or (:strength effect) 0.2)
+  (let [strength (float (or (:strength effect) 0.2))
         paper-texture (util/param :texture effect brush-spec)
         x (:x params)
         y (:y params)
-        paper (or paper-texture {:width 0 :height 0 :data (double-array 0)})
+        paper (or paper-texture {:width 0 :height 0 :data (float-array 0)})
         pw (:width paper) ph (:height paper)
         pdata (:data paper)
         tx (mod x pw)
@@ -66,7 +65,7 @@
 ;; ── 管线驱动 ──────────────────────────────────────────
 (defn apply-post-pipeline
   "按顺序应用后处理效果。
-   pixel     - 当前 RGBA 数组 double[4]
+   pixel     - 当前 RGBA 数组 float[4]
    data      - 画布数组
    w         - 画布宽度
    h         - 画布高度

@@ -1,9 +1,9 @@
 (ns top.kzre.krro.brush.dynamics
   "动力学映射器：将传感器值（压力、速度、倾斜等）转换为 dab 参数。
    所有函数均为纯数据变换，不依赖外部状态。"
-  (:require [top.kzre.krro.color.math :as cm])
   (:import (top.kzre.curve.bezier2d Curve)
-           (top.kzre.valuemapping Mappers ValueMapper)))
+           (top.kzre.valuemapping Mappers ValueMapper)
+           (top.kzre.colorutils MathUtils)))
 
 ;; ── 传感器值提取多方法 ──────────────────────────────
 (defmulti sensor-value
@@ -24,14 +24,14 @@
   (let [v (get-in event [:tilt :x] 0.0)
         max-tilt 60.0
         normalized (/ (double v) max-tilt)]
-    (cm/clamp01 (+ 0.5 (/ normalized 2.0)))))
+    (MathUtils/clamp01 (+ 0.5 (/ normalized 2.0)))))
 
 (defmethod sensor-value :tilt-y
   [_ event]
   (let [v (get-in event [:tilt :y] 0.0)
         max-tilt 60.0
         normalized (/ (double v) max-tilt)]
-    (cm/clamp01 (+ 0.5 (/ normalized 2.0)))))
+    (MathUtils/clamp01 (+ 0.5 (/ normalized 2.0)))))
 
 (defmethod sensor-value :rotation
   [_ event]

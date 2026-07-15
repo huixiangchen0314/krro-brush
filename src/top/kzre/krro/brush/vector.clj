@@ -13,24 +13,13 @@
        events))
 
 (defn generate-vector-stroke
-  "生成矢量笔触的纯几何数据。
-   参数：
-     brush-spec – 笔刷定义 map，应包含 :dynamics (可选)
-     events    – 输入事件序列，至少包含 :x, :y
-   选项：
-     :max-error      – 曲线拟合误差，默认 4.0
-     :width-samples  – 宽度输出采样数，默认 100
-   返回：
-     :curve         – 贝塞尔曲线 (Curve 对象)
-     :width-samples – 等弧长采样的宽度向量 (double[])
-     :arc-params    – 对应的弧长参数向量 (double[])"
   [brush-spec events & {:keys [max-error width-samples]
-                       :or {max-error 4.0 width-samples 100}}]
+                        :or {max-error 4.0 width-samples 100}}]
   (let [dyn-spec  (:dynamics brush-spec)
-        widths    (process-events events dyn-spec)
-        xs        (double-array (map :x events))
-        ys        (double-array (map :y events))
-        result    (VectorStroke/generate xs ys widths max-error width-samples)]
+        widths    (vec (process-events events dyn-spec))   ;; 强制求值为 vector
+        xs        (double-array (mapv :x events))           ;; mapv 立即求值
+        ys        (double-array (mapv :y events))
+        result    (VectorStroke/generate xs ys (double-array widths) max-error width-samples)]
     {:curve         (.getCurve result)
      :width-samples (vec (.getWidthSamples result))
      :arc-params    (vec (.getArcParams result))}))

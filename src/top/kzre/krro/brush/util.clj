@@ -8,7 +8,7 @@
   (some #(get % kw) maps))
 
 (defn clamp01 [x]
-  (MathUtils/clamp01 (double x)))
+  (MathUtils/clamp01 (float x)))
 
 (defn v- [a b] (mapv - a b))
 
