@@ -5,41 +5,43 @@
   (:import (top.kzre.colorutils.color RGB)
            (top.kzre.krro.brush Mix)))
 
+(defn- sample-gaussian
+  "从 tiled-canvas 中采样，cx, cy 为世界坐标，radius 为采样半径。"
+  [canvas cx cy radius]
+  (let [{:keys [tiles tile-size]} canvas]
+    (Mix/sampleGaussianTiled tiles (int tile-size) (float cx) (float cy) (float radius))))
+
 (defmulti mix
-          (fn [brush-spec _params _state _data _w _h] (:mix-mode brush-spec)))
+          (fn [brush-spec _params _state _canvas] (:mix-mode brush-spec)))
 
 (defmethod mix :default
-  [{:keys [color]} _params state _data _w _h]
+  [{:keys [color]} _params state _canvas]
   [color state])
 
 (defmethod mix :colored-brush
-  [brush-spec params state data w h]
-  (let [color           (:color brush-spec)                      ;; float[4] RGBA
+  [brush-spec params state canvas]
+  (let [color           (:color brush-spec)
         blend-ratio     (float (util/param :blend-ratio params brush-spec 0.5))
         carry-decay     (float (util/param :carry-decay params brush-spec 0.5))
         decay-exponent  (float (util/param :decay-exponent params brush-spec 1.0))
         min-carry       (float (util/param :min-carry params brush-spec 0.0))
-        carry           (or (:carry-color state)                 ;; float[3] RGB
-                            (RGB/rgbaToRgb color))
-        ;; 单点背景采样（radius=0）
-        bg-rgba         (Mix/sampleGaussian data (int w) (int h)
-                                            (float (:x params)) (float (:y params)) 0.0)
+        carry           (or (:carry-color state) (RGB/rgbaToRgb color))
+        bg-rgba         (sample-gaussian canvas (:x params) (:y params) 0.0)
         fg-rgb          (RGB/rgbaToRgb color)
         bg-rgb          (RGB/rgbaToRgb bg-rgba)
-        blended         (RGB/mix fg-rgb bg-rgb blend-ratio)      ;; float[3]
+        blended         (RGB/mix fg-rgb bg-rgb blend-ratio)
         effective-decay (float (Math/pow carry-decay decay-exponent))
         clamped-decay   (max min-carry effective-decay)
-        final-rgb       (RGB/mix carry blended clamped-decay)    ;; float[3]
+        final-rgb       (RGB/mix carry blended clamped-decay)
         final-rgba      (RGB/withAlpha final-rgb (RGB/alpha color))]
     [final-rgba (assoc state :carry-color final-rgb)]))
 
 (defmethod mix :dulling
-  [brush-spec params state data w h]
-  (let [color           (:color brush-spec)                      ;; float[4] RGBA
+  [brush-spec params state canvas]
+  (let [color           (:color brush-spec)
         dulling-ratio   (float (util/param :dulling-ratio params brush-spec 0.5))
         dulling-opacity (float (util/param :dulling-opacity params brush-spec 1.0))
-        bg-rgba         (Mix/sampleGaussian data (int w) (int h)
-                                            (float (:x params)) (float (:y params)) 0.0)
+        bg-rgba         (sample-gaussian canvas (:x params) (:y params) 0.0)
         fg-rgb          (RGB/rgbaToRgb color)
         bg-rgb          (RGB/rgbaToRgb bg-rgba)
         dulled-rgb      (RGB/mix bg-rgb fg-rgb dulling-ratio)
@@ -48,14 +50,14 @@
     [final-color state]))
 
 (defmethod mix :smudge
-  [brush-spec params state data w h]
-  (let [color           (:color brush-spec)                      ;; float[4] RGBA
+  [brush-spec params state canvas]
+  (let [color           (:color brush-spec)
         last-params     (:last-params state)
         smudge-radius   (float (or (util/param :smudge-radius params brush-spec) 10.0))
         smudge-strength (float (or (util/param :smudge-strength params brush-spec) 0.5))
         sample-x        (float (util/param :x last-params params))
         sample-y        (float (util/param :y last-params params))
-        smudge-src      (Mix/sampleGaussian data (int w) (int h) sample-x sample-y smudge-radius)
+        smudge-src      (sample-gaussian canvas sample-x sample-y smudge-radius)
         fg-rgb          (RGB/rgbaToRgb color)
         src-rgb         (RGB/rgbaToRgb smudge-src)
         mixed           (RGB/mix fg-rgb src-rgb smudge-strength)
