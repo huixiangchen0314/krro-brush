@@ -1,7 +1,7 @@
 .PHONY: clean compile test jar uberjar repl
 
 VERSION := 0.1.0
-JAR_FILE := target/homunculus-$(VERSION).jar
+JAR_FILE := target/krro-brush-$(VERSION).jar
 
 all: test
 
@@ -15,4 +15,4 @@ repl:
 	clj -M:dev
 
 install: jar
-	mvn install:install-file -Dfile=target/krro-brush-0.1.0.jar -DpomFile=pom.xml
+	mvn install:install-file -Dfile=$(JAR_FILE) -DpomFile=pom.xml

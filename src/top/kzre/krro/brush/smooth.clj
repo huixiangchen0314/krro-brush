@@ -22,7 +22,7 @@
 ;; ── 多方法分派 ───────────────────────────────────
 (defmulti smooth
           "根据 smooth-spec 中的 :stabilizer 选择平滑算法，返回平滑后的事件序列。"
-          (fn [_input-events smooth-spec] (get smooth-spec :stabilizer :gaussian)))
+          (fn [_input-events smooth-spec] (:stabilizer smooth-spec)))
 
 (defmethod smooth :gaussian [input-events smooth-spec]
   (let [window       (int (get smooth-spec :smoothing 5))
