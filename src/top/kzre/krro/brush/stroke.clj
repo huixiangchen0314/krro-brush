@@ -6,25 +6,43 @@
     [top.kzre.krro.brush.dab :as dab]
     [top.kzre.krro.brush.dynamics :as dynamics]
     [top.kzre.krro.brush.event :as event]
+    [top.kzre.krro.brush.measure :as measure]
+    [top.kzre.krro.brush.default :as default]
     [top.kzre.krro.brush.mix :as mix]
     [top.kzre.krro.brush.post :as post]
     [top.kzre.krro.brush.resample :as resample]
-    [top.kzre.krro.util.tiled-canvas :as tcanvas]
     [top.kzre.krro.brush.smooth :as smooth]
-    [top.kzre.krro.brush.util :as util])
-  (:import (java.util HashMap)
-           (top.kzre.colorutils.blend Blends)
-           (top.kzre.krro.brush PixelPostprocessor Stroke)))
+    [top.kzre.krro.brush.taper :as taper]
+    [top.kzre.krro.brush.util :as util]
+    [top.kzre.krro.util.tiled-canvas :as tcanvas])
+  (:import
+   (java.util HashMap)
+   (top.kzre.colorutils.blend Blends)
+   (top.kzre.krro.brush PixelPostprocessor Stroke)))
 
-;; ── 笔触构建（不变） ──────────────────────────────
+
 (defn events->stroke
-  [brush-spec events spacing radius]
+  [brush-spec events & {:keys [skip-smooth?] :as opts
+                        :or {skip-smooth? false}}]
   (let [filled    (map event/polyfill events)
-        smoothed  (smooth/smooth filled (:smooth brush-spec))
-        resampled (resample/resample smoothed spacing radius)
-        mapped    (mapv #(dynamics/map-dynamics % (:dynamics brush-spec)) resampled)]
-    {:brush  brush-spec
-     :params mapped}))
+        smoothed  (if skip-smooth? filled (smooth/smooth filled (:smooth brush-spec)))
+        resampled (resample/resample smoothed brush-spec)
+        measured  (measure/measure resampled)                       ;; 附加 :length
+        defaulted (default/apply-defaults measured brush-spec)        ;; 确保 :radius 等存在
+        mapped    (mapv #(dynamics/map-dynamics % (:dynamics brush-spec)) defaulted)
+        stroke    {:brush brush-spec :params mapped}
+        ;; 若 brush-spec 包含锥化参数，则自动应用锥化
+        tapered   (if (or (:taper-start-px brush-spec) (:taper-end-px brush-spec)
+                          (:taper-start-ratio brush-spec) (:taper-end-ratio brush-spec))
+                    (taper/taper-stroke stroke
+                                        :taper-start-px (:taper-start-px brush-spec)
+                                        :taper-end-px (:taper-end-px brush-spec)
+                                        :taper-start-ratio (:taper-start-ratio brush-spec)
+                                        :taper-end-ratio (:taper-end-ratio brush-spec)
+                                        :taper-fields (:taper-fields brush-spec))
+                    stroke)]
+    tapered))
+
 
 (defn join-stroke
   [& strokes]

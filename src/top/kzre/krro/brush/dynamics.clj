@@ -75,19 +75,23 @@
 
 ;; ── 主映射函数 ──────────────────────────────────────
 (defn map-dynamics
-  "根据动力学规格 dynamics-spec 和当输入传感器事件 event，
-   对 dab 基础参数 dab-base 进行动力学放大，返回更新后的 dab 参数 map。"
+  "根据动力学规格 dynamics-spec 和当前事件 event，对事件参数进行映射。
+   仅支持目标参数优先的格式：
+     {:radius {:sensor :pressure, :curve :linear, :min 0.2, :max 1.0}}
+     {:radius [{:sensor :pressure, :curve :linear, :min 0.2, :max 1.0}
+               {:sensor :velocity, :curve :sqrt, :min 0.5, :max 1.0}]}
+   每个配置必须包含 :sensor 关键字。"
   [event dynamics-spec]
   (reduce-kv
-    (fn [acc-params event-param mapping-spec]
-      (let [raw-value (sensor-value event-param event)]
-        (reduce-kv
-          (fn [params mapped-params {:keys [curve min max] :as opts
-                                     :or   {curve :linear, min 0.0, max 1.0}}]
-            (let [curved (apply-curve raw-value curve (dissoc opts :curve :min :max))
-                  mapped (+ (double min) (* (- (double max) (double min)) curved))]
-              (assoc params mapped-params mapped)))
-          acc-params
-          mapping-spec)))
+    (fn [acc-params param config]
+      (let [configs (if (map? config) [config] config)]  ; 统一为向量
+        (reduce (fn [params {:keys [sensor curve min max] :as opts
+                             :or {curve :linear, min 0.0, max 1.0}}]
+                  (let [raw-value (sensor-value sensor event)
+                        curved (apply-curve raw-value curve (dissoc opts :sensor :curve :min :max))
+                        mapped (+ (double min) (* (- (double max) (double min)) curved))]
+                    (assoc params param mapped)))
+                acc-params
+                configs)))
     event
     dynamics-spec))

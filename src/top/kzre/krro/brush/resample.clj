@@ -25,7 +25,7 @@
 (defn- interpolate-between
   "在 p1 和 p2 之间每隔 step 像素生成一个插值点（包含 p2，但不包含 p1）。
    直接对已知连续字段进行线性插值：:x :y :pressure :velocity :timestamp
-   :rotation :tilt-x :tilt-y。"
+   :rotation :tilt-x :tilt-y."
   [p1 p2 step]
   (let [dist (util/distance [(:x p1) (:y p1)] [(:x p2) (:y p2)])]
     (if (< dist 1e-6)
@@ -56,10 +56,10 @@
    输入 events（由 make-event 构造的完整事件），spacing 系数，radius 半径。
    返回新的均匀事件序列，相邻点距离约为 step = 2 * radius * spacing。
    原始点全部保留，距离过长的段会插入线性插值点。"
-  [events spacing radius]
+  [events brush-spec]
   (if (<= (count events) 1)
     events
-    (let [step (* 2 radius spacing)]
+    (let [step (* 2 (:radius brush-spec 5) (:spacing brush-spec 0.5))]
       (loop [remaining (rest events)
              result    [(first events)]
              prev      (first events)]

@@ -1,7 +1,7 @@
 (ns top.kzre.krro.brush.rdp
   "Ramer–Douglas–Peucker 事件降采样算法。
    用于减少笔刷事件点的数量，在保持形状的前提下提升渲染性能。
-   包含最小距离预过滤、首尾点保护和 RDP 简化。")
+   包含最小距离预过滤、首尾点保护和安全的保留长度处理。")
 
 (defn- filter-close-points [points min-dist]
   (reduce (fn [acc pt]
@@ -22,12 +22,13 @@
         mag (Math/sqrt (+ (* dx dx) (* dy dy)))]
     (if (zero? mag)
       (Math/sqrt (+ (Math/pow (- x x1) 2) (Math/pow (- y y1) 2)))
-      (Math/abs (/ (+ (* dy x) (- (* dx y)) (- (* dy x1)) (* dx y1)) mag)))))
+      (Math/abs (double (/ (+ (* dy x) (- (* dx y)) (- (* dy x1)) (* dx y1)) mag))))))
 
 (defn- rdp
-  "RDP 递归简化。points 为向量 [{:x :y ...}]，保留首尾点。"
-  [points epsilon]
-  (if (< (count points) 3)
+  "RDP 递归简化。points 为向量 [{:x :y ...}]，保留首尾点。
+   增加 max-points 参数：当点数少于该值时直接返回原序列，避免过度简化。"
+  [points epsilon & {:keys [max-points] :or {max-points 3}}]
+  (if (< (count points) max-points)
     points
     (let [first-pt (first points)
           last-pt  (last points)]
@@ -41,17 +42,28 @@
               (recur (inc i) d i)
               (recur (inc i) dist-max idx-max)))
           (if (> dist-max epsilon)
-            (let [left  (rdp (subvec points 0 (inc idx-max)) epsilon)
-                  right (rdp (subvec points idx-max) epsilon)]
+            (let [left  (rdp (subvec points 0 (inc idx-max)) epsilon :max-points max-points)
+                  right (rdp (subvec points idx-max) epsilon :max-points max-points)]
               (into (pop left) right))
             [first-pt last-pt]))))))
 
-(defn- rdp-segment [points epsilon preserve-head preserve-tail]
-  ;; 确保至少保留首尾指定数量的点，对中间部分应用 RDP
-  (let [head   (take preserve-head points)
-        tail   (take-last preserve-tail points)
-        middle (drop preserve-head (drop-last preserve-tail points))]
-    (into (vec head) (into (rdp (vec middle) epsilon) tail))))
+(defn- rdp-segment
+  "对中间部分应用 RDP，同时确保首尾保留点不重叠。
+   preserve-head, preserve-tail 会被限制在合理范围内。"
+  [points epsilon preserve-head preserve-tail]
+  (let [total (count points)]
+    (if (<= total 0)
+      points
+      (let [head-len (min preserve-head total)
+            tail-len (min preserve-tail (max 0 (- total head-len)))
+            head     (take head-len points)
+            tail     (take-last tail-len points)
+            middle   (if (and (< head-len total) (< (+ head-len tail-len) total))
+                       (drop head-len (drop-last tail-len points))
+                       [])]
+        (if (empty? middle)
+          (vec points)   ;; 无法分割，保留全部
+          (into (vec head) (into (rdp (vec middle) epsilon) tail)))))))
 
 (defn simplify
   "对事件序列进行简化：先通过最小距离过滤，再对中间部分应用 RDP 降采样，
