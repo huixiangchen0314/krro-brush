@@ -1,15 +1,24 @@
 (ns top.kzre.krro.brush.mix
   "混合模式模块：根据 mix-mode 动态计算前景色，并维护状态。
-   颜色均为 float[]。"
+   颜色均为 float[]。完全基于 TiledCanvas。"
   (:require [top.kzre.krro.brush.util :as util])
-  (:import (top.kzre.colorutils.color RGB)
-           (top.kzre.krro.brush Mix)))
+  (:import (java.util.function Consumer)
+           (top.kzre.colorutils.color RGB)
+           (top.kzre.krro.brush Mix)
+           (top.kzre.krro.util.tile TiledCanvas)
+           (java.util HashMap)))
 
 (defn- sample-gaussian
-  "从 tiled-canvas 中采样，cx, cy 为世界坐标，radius 为采样半径。"
-  [canvas cx cy radius]
-  (let [{:keys [tiles tile-size]} canvas]
-    (Mix/sampleGaussianTiled tiles (int tile-size) (float cx) (float cy) (float radius))))
+  "从 TiledCanvas 中采样，cx, cy 为世界坐标，radius 为采样半径。"
+  [^TiledCanvas canvas cx cy radius]
+  (let [tile-size (.getTileSize canvas)
+        ;; 读取瓦片映射（只读引用）
+        tiles-map (HashMap.)]
+    (.readTiles canvas
+                (reify Consumer
+                  (accept [_ m] (.putAll tiles-map m))))
+    (Mix/sampleGaussianTiled tiles-map tile-size
+                             (float cx) (float cy) (float radius))))
 
 (defmulti mix
           (fn [brush-spec _params _state _canvas] (:mix-mode brush-spec)))
@@ -18,13 +27,14 @@
   [{:keys [color]} _params state _canvas]
   [color state])
 
+;; 颜色携带
 (defmethod mix :colored-brush
   [brush-spec params state canvas]
   (let [color           (:color brush-spec)
-        blend-ratio     (float (util/param :blend-ratio params brush-spec 0.5))
-        carry-decay     (float (util/param :carry-decay params brush-spec 0.5))
-        decay-exponent  (float (util/param :decay-exponent params brush-spec 1.0))
-        min-carry       (float (util/param :min-carry params brush-spec 0.0))
+        blend-ratio     (float (or (util/param :blend-ratio params brush-spec) 0.5))
+        carry-decay     (float (or (util/param :carry-decay params brush-spec) 0.5))
+        decay-exponent  (float (or (util/param :decay-exponent params brush-spec) 1.0))
+        min-carry       (float (or (util/param :min-carry params brush-spec) 0.0))
         carry           (or (:carry-color state) (RGB/rgbaToRgb color))
         bg-rgba         (sample-gaussian canvas (:x params) (:y params) 0.0)
         fg-rgb          (RGB/rgbaToRgb color)

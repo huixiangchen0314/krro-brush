@@ -6,8 +6,8 @@
 
 (defn- process-events
   "使用动力学规格处理事件序列，返回每个点的宽度列表。"
-  [events dynamics-spec]
-  (map #(let [params (dynamics/map-dynamics % dynamics-spec)
+  [events brush-spec]
+  (map #(let [params (dynamics/map-dynamics % brush-spec)
               width  (get params :radius 5.0)]
           (double width))
        events))
@@ -15,8 +15,7 @@
 (defn generate-vector-stroke
   [brush-spec events & {:keys [max-error width-samples]
                         :or {max-error 4.0 width-samples 100}}]
-  (let [dyn-spec  (:dynamics brush-spec)
-        widths    (vec (process-events events dyn-spec))   ;; 强制求值为 vector
+  (let [widths    (vec (process-events events brush-spec))   ;; 强制求值为 vector
         xs        (double-array (mapv :x events))           ;; mapv 立即求值
         ys        (double-array (mapv :y events))
         result    (VectorStroke/generate xs ys (double-array widths) max-error width-samples)]

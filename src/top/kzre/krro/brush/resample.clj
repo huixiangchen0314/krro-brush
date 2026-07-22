@@ -1,6 +1,7 @@
 (ns top.kzre.krro.brush.resample
-  "事件重采样与插值，保证 dab 等距分布并平滑其他动态属性。
-   假设所有事件已通过 make-event 补全默认字段。"
+  "事件重采样与插值，保证 dab 等距分布并支持动态间距。
+   假设所有事件已通过 make-event 补全默认字段。
+   默认使用 MyPaint 风格的自适应间距。"
   (:require [top.kzre.krro.brush.util :as util]))
 
 (defn spacing-resample
@@ -24,8 +25,7 @@
 
 (defn- interpolate-between
   "在 p1 和 p2 之间每隔 step 像素生成一个插值点（包含 p2，但不包含 p1）。
-   直接对已知连续字段进行线性插值：:x :y :pressure :velocity :timestamp
-   :rotation :tilt-x :tilt-y."
+   直接对已知连续字段进行线性插值。"
   [p1 p2 step]
   (let [dist (util/distance [(:x p1) (:y p1)] [(:x p2) (:y p2)])]
     (if (< dist 1e-6)
@@ -52,20 +52,25 @@
              (range 1 (inc n)))))))
 
 (defn resample
-  "通用重采样 + 插值。
-   输入 events（由 make-event 构造的完整事件），spacing 系数，radius 半径。
-   返回新的均匀事件序列，相邻点距离约为 step = 2 * radius * spacing。
-   原始点全部保留，距离过长的段会插入线性插值点。"
-  [events brush-spec]
+  "通用重采样 + 插值，默认使用 MyPaint 风格的自适应间距。
+   events     : 原始事件序列
+   brush-spec : 笔刷配置 (至少包含 :radius 和 :spacing)
+   可选参数：
+     :spacing-fn - 自定义间距函数 (fn [point] step-in-pixels)，若未提供则使用默认自适应间距。"
+  [events brush-spec & {:keys [spacing-fn] }]
   (if (<= (count events) 1)
     events
-    (let [step (* 2 (:radius brush-spec 5) (:spacing brush-spec 0.5))]
+    (let [default-spacing-fn (fn [pt]
+                               (* (double (or (:spacing brush-spec) 0.2))
+                                  (double (or (:radius pt) (:radius brush-spec) 5))))
+          get-step (or spacing-fn default-spacing-fn)]
       (loop [remaining (rest events)
              result    [(first events)]
              prev      (first events)]
         (if (empty? remaining)
           result
           (let [curr (first remaining)
+                step (get-step prev)               ;; 基于前一个点的半径计算间距
                 inter-points (interpolate-between prev curr step)]
             (recur (rest remaining)
                    (into result inter-points)

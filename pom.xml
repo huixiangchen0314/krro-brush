@@ -50,6 +50,16 @@
         </dependency>
         <dependency>
             <groupId>top.kzre</groupId>
+            <artifactId>krro-util-pool</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>top.kzre</groupId>
+            <artifactId>krro-util-math</artifactId>
+            <version>1.0-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>top.kzre</groupId>
             <artifactId>curve-bezier2d</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
